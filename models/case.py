@@ -12,18 +12,24 @@ class Case:
         case_id: Optional[int],
         alert_id: int,
         assigned_to: Optional[str] = None,
-        status: str = "NEW",
+        status: str = "OPEN",
         priority: str = "MEDIUM",
         notes: Optional[str] = None,
+        remarks: Optional[str] = None,
+        analyst_notes: Optional[str] = None,
+        resolution: Optional[str] = None,
         created_at: Optional[datetime] = None,
         updated_at: Optional[datetime] = None
     ) -> None:
         self.case_id = case_id
         self.alert_id = alert_id
         self.assigned_to = assigned_to
-        self.status = status
-        self.priority = priority
+        self.status = status.upper() if status else "OPEN"
+        self.priority = priority.upper() if priority else "MEDIUM"
         self.notes = notes
+        self.remarks = remarks
+        self.analyst_notes = analyst_notes
+        self.resolution = resolution
         self.created_at = created_at or datetime.now()
         self.updated_at = updated_at or datetime.now()
 
@@ -35,7 +41,7 @@ class Case:
         """
         if self.alert_id <= 0:
             raise ValidationException(f"Invalid alert_id: {self.alert_id}. Must be positive.")
-        if self.status not in ("NEW", "INVESTIGATING", "CLOSED_RESOLVED", "CLOSED_ESCALATED"):
+        if self.status not in ("OPEN", "UNDER_REVIEW", "ESCALATED", "RESOLVED", "CLOSED"):
             raise ValidationException(f"Invalid case status: '{self.status}'")
         if self.priority not in ("LOW", "MEDIUM", "HIGH", "CRITICAL"):
             raise ValidationException(f"Invalid case priority: '{self.priority}'")
@@ -51,6 +57,9 @@ class Case:
             "status": self.status,
             "priority": self.priority,
             "notes": self.notes,
+            "remarks": self.remarks,
+            "analyst_notes": self.analyst_notes,
+            "resolution": self.resolution,
             "created_at": self.created_at.isoformat() if isinstance(self.created_at, datetime) else self.created_at,
             "updated_at": self.updated_at.isoformat() if isinstance(self.updated_at, datetime) else self.updated_at,
         }
@@ -78,9 +87,12 @@ class Case:
             case_id=data.get("case_id"),
             alert_id=data.get("alert_id", 0),
             assigned_to=data.get("assigned_to"),
-            status=data.get("status", "NEW"),
+            status=data.get("status", "OPEN"),
             priority=data.get("priority", "MEDIUM"),
             notes=data.get("notes"),
+            remarks=data.get("remarks"),
+            analyst_notes=data.get("analyst_notes"),
+            resolution=data.get("resolution"),
             created_at=created_at,
             updated_at=updated_at
         )

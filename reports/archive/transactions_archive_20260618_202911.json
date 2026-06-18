@@ -1,0 +1,15 @@
+[
+    {
+        "transaction_id": 9999,
+        "customer_id": 1,
+        "merchant_id": null,
+        "device_id": null,
+        "amount": "500.00",
+        "currency": "USD",
+        "transaction_type": "PURCHASE",
+        "status": "FLAGGED",
+        "location_latitude": null,
+        "location_longitude": null,
+        "transaction_time": "2025-11-30 20:29:11"
+    }
+]

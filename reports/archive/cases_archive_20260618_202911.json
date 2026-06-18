@@ -1,0 +1,15 @@
+[
+    {
+        "case_id": 9999,
+        "alert_id": 9999,
+        "assigned_to": null,
+        "status": "OPEN",
+        "priority": "HIGH",
+        "notes": null,
+        "remarks": null,
+        "analyst_notes": null,
+        "resolution": null,
+        "created_at": "2025-11-30T20:29:11",
+        "updated_at": "2026-06-18T20:29:11"
+    }
+]

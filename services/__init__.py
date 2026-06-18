@@ -8,6 +8,13 @@ from .risk_explanation_service import RiskExplanationService
 from .alert_service import AlertService
 from .blacklist_service import BlacklistService
 from .whitelist_service import WhitelistService
+from .case_service import CaseService
+from .risk_profile_service import RiskProfileService
+from .investigation_service import InvestigationService
+from .merchant_profile_service import MerchantProfileService
+from .risk_history_service import RiskHistoryService
+from .analytics_service import AnalyticsService
+from .audit_log_service import AuditLogService
 
 __all__ = [
     "CustomerService",
@@ -19,7 +26,15 @@ __all__ = [
     "RiskExplanationService",
     "AlertService",
     "BlacklistService",
-    "WhitelistService"
+    "WhitelistService",
+    "CaseService",
+    "RiskProfileService",
+    "InvestigationService",
+    "MerchantProfileService",
+    "RiskHistoryService",
+    "AnalyticsService",
+    "AuditLogService"
 ]
+
 
 

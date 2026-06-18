@@ -301,6 +301,20 @@ class TransactionService:
                         }
                     )
 
+            # Audit log transaction creation
+            try:
+                from services.audit_log_service import AuditLogService
+                AuditLogService().log_audit(
+                    user_action="CREATE_TRANSACTION",
+                    affected_table="transactions",
+                    record_id=evaluated_tx.transaction_id,
+                    old_values=None,
+                    new_values=evaluated_tx.to_dict(),
+                    performed_by="SYSTEM"
+                )
+            except Exception as audit_err:
+                self.logger.error(f"Failed to log transaction creation audit: {audit_err}")
+
             return evaluated_tx
 
         except Exception as e:

@@ -1,0 +1,9 @@
+{
+    "window_days": 1,
+    "total_transactions": 5,
+    "fraud_count": 0,
+    "fraud_rate_percentage": 0.0,
+    "total_transaction_amount": 12925.0,
+    "average_transaction_amount": 2585.0,
+    "alerts_generated": 0
+}

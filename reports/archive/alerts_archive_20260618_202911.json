@@ -1,0 +1,11 @@
+[
+    {
+        "alert_id": 9999,
+        "transaction_id": 9999,
+        "customer_id": 1,
+        "risk_score": 80,
+        "severity": "HIGH",
+        "status": "OPEN",
+        "created_at": "2025-11-30T20:29:11"
+    }
+]

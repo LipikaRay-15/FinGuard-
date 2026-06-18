@@ -98,11 +98,23 @@ class RuleEngine:
             raise ValueError(f"Rule with ID {rule_id} not found in database.")
             
         if not rule.enabled:
+            old_values = rule.to_dict()
             rule.enabled = True
             self.rule_repo.update(rule)
             self.db.commit()
             self.logger.info(f"Rule '{rule.rule_name}' (ID: {rule_id}) enabled successfully.")
             self.reload_rules()
+            
+            # Log Audit Activity
+            from services.audit_log_service import AuditLogService
+            AuditLogService().log_audit(
+                user_action="ENABLE_RULE",
+                affected_table="fraud_rules",
+                record_id=rule_id,
+                old_values=old_values,
+                new_values=rule.to_dict(),
+                performed_by="SYSTEM"
+            )
 
     def disable_rule(self, rule_id: int) -> None:
         """
@@ -113,8 +125,20 @@ class RuleEngine:
             raise ValueError(f"Rule with ID {rule_id} not found in database.")
             
         if rule.enabled:
+            old_values = rule.to_dict()
             rule.enabled = False
             self.rule_repo.update(rule)
             self.db.commit()
             self.logger.info(f"Rule '{rule.rule_name}' (ID: {rule_id}) disabled successfully.")
             self.reload_rules()
+            
+            # Log Audit Activity
+            from services.audit_log_service import AuditLogService
+            AuditLogService().log_audit(
+                user_action="DISABLE_RULE",
+                affected_table="fraud_rules",
+                record_id=rule_id,
+                old_values=old_values,
+                new_values=rule.to_dict(),
+                performed_by="SYSTEM"
+            )

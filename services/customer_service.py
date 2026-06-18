@@ -2,6 +2,7 @@ import logging
 import re
 from typing import Any, Dict, List, Optional
 
+from database import DatabaseConnection
 from exceptions import (
     CustomerNotFoundException,
     DuplicateCustomerException,
@@ -21,6 +22,7 @@ class CustomerService:
     def __init__(self) -> None:
         self.customer_repo = CustomerRepository()
         self.risk_repo = RiskProfileRepository()
+        self.db = DatabaseConnection()
         self.logger = logging.getLogger("finguard.services.customer")
 
     @staticmethod
@@ -127,18 +129,26 @@ class CustomerService:
                 pan=pan,
                 account_number=account_number
             )
-            created = self.customer_repo.create(cust)
-            self.logger.info(f"Successfully created customer ID {created.customer_id}")
-            from engines.event_manager import EventManager
-            EventManager().log_event(
-                event_type="CUSTOMER_CREATED",
-                entity_type="CUSTOMER",
-                entity_id=created.customer_id,
-                details={"email": created.email, "status": created.status}
+            saved = self.customer_repo.create(cust)
+            self.db.commit()
+            
+            # Audit log
+            from services.audit_log_service import AuditLogService
+            AuditLogService().log_audit(
+                user_action="CREATE_CUSTOMER",
+                affected_table="customers",
+                record_id=saved.customer_id,
+                old_values=None,
+                new_values=saved.to_dict(),
+                performed_by="SYSTEM"
             )
-            return created
-        except ValidationException as ve:
-            raise InvalidCustomerException(f"Validation failure: {ve}")
+            return saved
+
+        except Exception as e:
+            self.db.rollback()
+            if isinstance(e, ValidationException):
+                raise InvalidCustomerException(f"Validation failure: {e}")
+            raise
 
     def update_customer(
         self,
@@ -176,6 +186,8 @@ class CustomerService:
         # Check for clashing duplicates excluding the current customer
         self._check_duplicates(email, pan, account_number, exclude_customer_id=customer_id)
 
+        old_values = cust.to_dict()
+
         try:
             cust.first_name = first_name
             cust.last_name = last_name
@@ -186,6 +198,7 @@ class CustomerService:
             cust.account_number = account_number
             
             self.customer_repo.update(cust)
+            self.db.commit()
             self.logger.info(f"Successfully updated customer ID {customer_id}")
             from engines.event_manager import EventManager
             EventManager().log_event(
@@ -194,8 +207,22 @@ class CustomerService:
                 entity_id=customer_id,
                 details={"email": email, "status": status}
             )
-        except ValidationException as ve:
-            raise InvalidCustomerException(f"Validation failure: {ve}")
+            
+            # Audit log
+            from services.audit_log_service import AuditLogService
+            AuditLogService().log_audit(
+                user_action="UPDATE_CUSTOMER",
+                affected_table="customers",
+                record_id=customer_id,
+                old_values=old_values,
+                new_values=cust.to_dict(),
+                performed_by="SYSTEM"
+            )
+        except Exception as ve:
+            self.db.rollback()
+            if isinstance(ve, ValidationException):
+                raise InvalidCustomerException(f"Validation failure: {ve}")
+            raise
 
     def delete_customer(self, customer_id: int) -> None:
         """
@@ -209,8 +236,25 @@ class CustomerService:
             self.logger.error(f"Failed deletion: Customer ID {customer_id} not found.")
             raise CustomerNotFoundException(f"Customer with ID {customer_id} does not exist.")
             
-        self.customer_repo.delete(customer_id)
-        self.logger.info(f"Successfully deleted customer ID {customer_id}")
+        old_values = cust.to_dict()
+        try:
+            self.customer_repo.delete(customer_id)
+            self.db.commit()
+            self.logger.info(f"Successfully deleted customer ID {customer_id}")
+            
+            # Audit log
+            from services.audit_log_service import AuditLogService
+            AuditLogService().log_audit(
+                user_action="DELETE_CUSTOMER",
+                affected_table="customers",
+                record_id=customer_id,
+                old_values=old_values,
+                new_values=None,
+                performed_by="SYSTEM"
+            )
+        except Exception as e:
+            self.db.rollback()
+            raise
 
     def get_customer_by_id(self, customer_id: int) -> Customer:
         """

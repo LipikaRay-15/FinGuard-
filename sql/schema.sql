@@ -219,15 +219,18 @@ CREATE TABLE cases (
     case_id INT AUTO_INCREMENT PRIMARY KEY,
     alert_id INT NOT NULL,
     assigned_to VARCHAR(100) DEFAULT NULL, -- Analyst assigning
-    status VARCHAR(20) DEFAULT 'NEW',
+    status VARCHAR(20) DEFAULT 'OPEN',
     priority VARCHAR(10) DEFAULT 'MEDIUM',
     notes TEXT,
+    remarks TEXT,
+    analyst_notes TEXT,
+    resolution VARCHAR(255) DEFAULT NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     
     CONSTRAINT uq_case_alert UNIQUE (alert_id),
     CONSTRAINT fk_case_alert FOREIGN KEY (alert_id) REFERENCES alerts (alert_id) ON DELETE CASCADE,
-    CONSTRAINT chk_case_status CHECK (status IN ('NEW', 'INVESTIGATING', 'CLOSED_RESOLVED', 'CLOSED_ESCALATED')),
+    CONSTRAINT chk_case_status CHECK (status IN ('OPEN', 'UNDER_REVIEW', 'ESCALATED', 'RESOLVED', 'CLOSED')),
     CONSTRAINT chk_case_priority CHECK (priority IN ('LOW', 'MEDIUM', 'HIGH', 'CRITICAL'))
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
@@ -542,14 +545,14 @@ sp_block: BEGIN
     
     -- Run Check 1: High Transaction Amount
     IF v_rule_high_amount_active AND v_amount > v_rule_high_amount_val THEN
-        INSERT INTO rule_execution_logs (transaction_id, rule_id, triggered, risk_score_awarded)
-        VALUES (p_transaction_id, (SELECT rule_id FROM fraud_rules WHERE rule_name = 'High Transaction Amount'), TRUE, v_rule_high_amount_score);
+        INSERT INTO rule_execution_logs (transaction_id, rule_id, rule_name, triggered, risk_score_awarded, severity)
+        VALUES (p_transaction_id, (SELECT rule_id FROM fraud_rules WHERE rule_name = 'High Transaction Amount'), 'High Transaction Amount', TRUE, v_rule_high_amount_score, 'HIGH');
         IF v_rule_high_amount_score > v_max_rule_score THEN
             SET v_max_rule_score = v_rule_high_amount_score;
         END IF;
     ELSE
-        INSERT INTO rule_execution_logs (transaction_id, rule_id, triggered, risk_score_awarded)
-        VALUES (p_transaction_id, (SELECT rule_id FROM fraud_rules WHERE rule_name = 'High Transaction Amount'), FALSE, 0);
+        INSERT INTO rule_execution_logs (transaction_id, rule_id, rule_name, triggered, risk_score_awarded, severity)
+        VALUES (p_transaction_id, (SELECT rule_id FROM fraud_rules WHERE rule_name = 'High Transaction Amount'), 'High Transaction Amount', FALSE, 0, 'HIGH');
     END IF;
     
     -- Run Check 2: Transaction Velocity Check
@@ -561,14 +564,14 @@ sp_block: BEGIN
           AND status IN ('APPROVED', 'PENDING');
         
         IF v_recent_tx_count > v_rule_velocity_limit THEN
-            INSERT INTO rule_execution_logs (transaction_id, rule_id, triggered, risk_score_awarded)
-            VALUES (p_transaction_id, (SELECT rule_id FROM fraud_rules WHERE rule_name = 'Rapid Velocity Limit'), TRUE, v_rule_velocity_score);
+            INSERT INTO rule_execution_logs (transaction_id, rule_id, rule_name, triggered, risk_score_awarded, severity)
+            VALUES (p_transaction_id, (SELECT rule_id FROM fraud_rules WHERE rule_name = 'Rapid Velocity Limit'), 'Rapid Velocity Limit', TRUE, v_rule_velocity_score, 'CRITICAL');
             IF v_rule_velocity_score > v_max_rule_score THEN
                 SET v_max_rule_score = v_rule_velocity_score;
             END IF;
         ELSE
-            INSERT INTO rule_execution_logs (transaction_id, rule_id, triggered, risk_score_awarded)
-            VALUES (p_transaction_id, (SELECT rule_id FROM fraud_rules WHERE rule_name = 'Rapid Velocity Limit'), FALSE, 0);
+            INSERT INTO rule_execution_logs (transaction_id, rule_id, rule_name, triggered, risk_score_awarded, severity)
+            VALUES (p_transaction_id, (SELECT rule_id FROM fraud_rules WHERE rule_name = 'Rapid Velocity Limit'), 'Rapid Velocity Limit', FALSE, 0, 'CRITICAL');
         END IF;
     END IF;
     
@@ -577,14 +580,14 @@ sp_block: BEGIN
         SELECT merchant_category_code INTO v_mcc FROM merchant_profiles WHERE merchant_id = v_merchant_id;
         -- Standard MCC codes: 7995 (betting/gambling), 5933 (pawnshops), 5967 (direct marketing outbound call/adult)
         IF v_mcc IN ('7995', '5933', '5967') THEN
-            INSERT INTO rule_execution_logs (transaction_id, rule_id, triggered, risk_score_awarded)
-            VALUES (p_transaction_id, (SELECT rule_id FROM fraud_rules WHERE rule_name = 'High-Risk Merchant Category'), TRUE, v_rule_mcc_score);
+            INSERT INTO rule_execution_logs (transaction_id, rule_id, rule_name, triggered, risk_score_awarded, severity)
+            VALUES (p_transaction_id, (SELECT rule_id FROM fraud_rules WHERE rule_name = 'High-Risk Merchant Category'), 'High-Risk Merchant Category', TRUE, v_rule_mcc_score, 'MEDIUM');
             IF v_rule_mcc_score > v_max_rule_score THEN
                 SET v_max_rule_score = v_rule_mcc_score;
             END IF;
         ELSE
-            INSERT INTO rule_execution_logs (transaction_id, rule_id, triggered, risk_score_awarded)
-            VALUES (p_transaction_id, (SELECT rule_id FROM fraud_rules WHERE rule_name = 'High-Risk Merchant Category'), FALSE, 0);
+            INSERT INTO rule_execution_logs (transaction_id, rule_id, rule_name, triggered, risk_score_awarded, severity)
+            VALUES (p_transaction_id, (SELECT rule_id FROM fraud_rules WHERE rule_name = 'High-Risk Merchant Category'), 'High-Risk Merchant Category', FALSE, 0, 'MEDIUM');
         END IF;
     END IF;
     
@@ -612,7 +615,7 @@ sp_block: BEGIN
         VALUES (
             v_alert_id,
             'System Queue',
-            'NEW',
+            'OPEN',
             CASE WHEN p_risk_score >= 80 THEN 'HIGH' ELSE 'MEDIUM' END,
             CONCAT('Auto-triggered risk assessment case. Risk rating: ', p_risk_score)
         );

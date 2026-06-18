@@ -76,6 +76,7 @@ class AlertService:
             if not alert:
                 raise ValidationException(f"Alert with ID {alert_id} not found.")
 
+            old_values = alert.to_dict()
             alert.status = status.upper()
             alert.validate()
             self.alert_repo.update(alert)
@@ -86,6 +87,17 @@ class AlertService:
                 entity_type="ALERT",
                 entity_id=str(alert_id),
                 details={"status": alert.status}
+            )
+
+            # Log Audit Activity
+            from services.audit_log_service import AuditLogService
+            AuditLogService().log_audit(
+                user_action="UPDATE_ALERT_STATUS",
+                affected_table="alerts",
+                record_id=alert_id,
+                old_values=old_values,
+                new_values=alert.to_dict(),
+                performed_by="SYSTEM"
             )
         except Exception as e:
             self.db.rollback()
@@ -105,6 +117,7 @@ class AlertService:
             if not alert:
                 raise ValidationException(f"Alert with ID {alert_id} not found.")
 
+            old_values = alert.to_dict()
             res_upper = resolution.upper().strip()
             if "FALSE_POSITIVE" in res_upper or "FALSE POSITIVE" in res_upper:
                 alert.status = "FALSE_POSITIVE"
@@ -123,6 +136,17 @@ class AlertService:
                 entity_id=str(alert_id),
                 details={"status": alert.status, "resolution": resolution}
             )
+
+            # Log Audit Activity
+            from services.audit_log_service import AuditLogService
+            AuditLogService().log_audit(
+                user_action="CLOSE_ALERT",
+                affected_table="alerts",
+                record_id=alert_id,
+                old_values=old_values,
+                new_values=alert.to_dict(),
+                performed_by="SYSTEM"
+            )
         except Exception as e:
             self.db.rollback()
             logger.error(f"Failed to close alert {alert_id}: {e}", exc_info=True)
@@ -140,6 +164,7 @@ class AlertService:
             if not alert:
                 raise ValidationException(f"Alert with ID {alert_id} not found.")
 
+            old_values = alert.to_dict()
             severity_order = ["LOW", "MEDIUM", "HIGH", "CRITICAL"]
             curr_idx = severity_order.index(alert.severity)
             if curr_idx < len(severity_order) - 1:
@@ -159,6 +184,17 @@ class AlertService:
                     "severity": alert.severity,
                     "notes": notes
                 }
+            )
+
+            # Log Audit Activity
+            from services.audit_log_service import AuditLogService
+            AuditLogService().log_audit(
+                user_action="ESCALATE_ALERT",
+                affected_table="alerts",
+                record_id=alert_id,
+                old_values=old_values,
+                new_values=alert.to_dict(),
+                performed_by="SYSTEM"
             )
         except Exception as e:
             self.db.rollback()

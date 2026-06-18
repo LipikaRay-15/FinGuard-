@@ -13,8 +13,8 @@ class CaseRepository(BaseRepository[Case]):
     def create(self, entity: Case) -> Case:
         entity.validate()
         query = """
-            INSERT INTO cases (alert_id, assigned_to, status, priority, notes, created_at, updated_at)
-            VALUES (%s, %s, %s, %s, %s, %s, %s)
+            INSERT INTO cases (alert_id, assigned_to, status, priority, notes, remarks, analyst_notes, resolution, created_at, updated_at)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
         """
         params = (
             entity.alert_id,
@@ -22,6 +22,9 @@ class CaseRepository(BaseRepository[Case]):
             entity.status,
             entity.priority,
             entity.notes,
+            entity.remarks,
+            entity.analyst_notes,
+            entity.resolution,
             entity.created_at,
             entity.updated_at
         )
@@ -34,7 +37,8 @@ class CaseRepository(BaseRepository[Case]):
         entity.validate()
         query = """
             UPDATE cases
-            SET alert_id = %s, assigned_to = %s, status = %s, priority = %s, notes = %s, updated_at = NOW()
+            SET alert_id = %s, assigned_to = %s, status = %s, priority = %s, notes = %s, 
+                remarks = %s, analyst_notes = %s, resolution = %s, updated_at = NOW()
             WHERE case_id = %s
         """
         params = (
@@ -43,6 +47,9 @@ class CaseRepository(BaseRepository[Case]):
             entity.status,
             entity.priority,
             entity.notes,
+            entity.remarks,
+            entity.analyst_notes,
+            entity.resolution,
             entity.case_id
         )
         cursor = self.db.execute(query, params)
