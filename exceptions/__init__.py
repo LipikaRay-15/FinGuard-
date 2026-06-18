@@ -15,6 +15,19 @@ from .custom_exceptions import (
     DeviceNotFoundException,
     DuplicateDeviceException,
     InvalidDeviceException,
+    CustomerValidationError,
+    FirstNameValidationError,
+    LastNameValidationError,
+    DOBValidationError,
+    GenderValidationError,
+    EmailValidationError,
+    PhoneValidationError,
+    PANValidationError,
+    AccountNumberValidationError,
+    CityValidationError,
+    AddressValidationError,
+    PincodeValidationError,
+    CustomerValidationException,
 )
 
 __all__ = [
@@ -34,5 +47,19 @@ __all__ = [
     "DeviceNotFoundException",
     "DuplicateDeviceException",
     "InvalidDeviceException",
+    "CustomerValidationError",
+    "FirstNameValidationError",
+    "LastNameValidationError",
+    "DOBValidationError",
+    "GenderValidationError",
+    "EmailValidationError",
+    "PhoneValidationError",
+    "PANValidationError",
+    "AccountNumberValidationError",
+    "CityValidationError",
+    "AddressValidationError",
+    "PincodeValidationError",
+    "CustomerValidationException",
 ]
+
 

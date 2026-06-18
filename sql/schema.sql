@@ -45,11 +45,19 @@ CREATE TABLE customers (
     customer_id INT AUTO_INCREMENT PRIMARY KEY,
     first_name VARCHAR(50) NOT NULL,
     last_name VARCHAR(50) NOT NULL,
+    date_of_birth DATE DEFAULT NULL,
+    gender VARCHAR(20) DEFAULT NULL,
     email VARCHAR(100) NOT NULL,
     phone VARCHAR(20),
     status VARCHAR(20) DEFAULT 'ACTIVE',
     pan VARCHAR(10) DEFAULT NULL,
     account_number VARCHAR(20) DEFAULT NULL,
+    city VARCHAR(100) DEFAULT NULL,
+    pincode VARCHAR(6) DEFAULT NULL,
+    state VARCHAR(100) DEFAULT NULL,
+    country VARCHAR(100) DEFAULT NULL,
+    address VARCHAR(255) DEFAULT NULL,
+    risk_level VARCHAR(20) DEFAULT 'LOW',
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     
@@ -57,7 +65,7 @@ CREATE TABLE customers (
     CONSTRAINT uq_customer_phone UNIQUE (phone),
     CONSTRAINT uq_customer_pan UNIQUE (pan),
     CONSTRAINT uq_customer_account UNIQUE (account_number),
-    CONSTRAINT chk_customer_status CHECK (status IN ('ACTIVE', 'SUSPENDED', 'BLOCKED'))
+    CONSTRAINT chk_customer_status CHECK (status IN ('ACTIVE', 'SUSPENDED', 'BLOCKED', 'INACTIVE'))
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Table: merchant_profiles
@@ -478,8 +486,8 @@ sp_block: BEGIN
         UPDATE transactions SET status = 'DECLINED' WHERE transaction_id = p_transaction_id;
         
         -- Insert alert and case
-        INSERT INTO alerts (transaction_id, customer_id, risk_score, status)
-        VALUES (p_transaction_id, v_customer_id, 100, 'OPEN');
+        INSERT INTO alerts (transaction_id, customer_id, risk_score, severity, status)
+        VALUES (p_transaction_id, v_customer_id, 100, 'CRITICAL', 'OPEN');
         SET v_alert_id = LAST_INSERT_ID();
         INSERT INTO cases (alert_id, assigned_to, status, priority, notes)
         VALUES (v_alert_id, 'System Queue', 'NEW', 'CRITICAL', 'Instant decline: Customer resides on Blacklist.');
@@ -494,8 +502,8 @@ sp_block: BEGIN
         UPDATE transactions SET status = 'DECLINED' WHERE transaction_id = p_transaction_id;
         
         -- Insert alert and case
-        INSERT INTO alerts (transaction_id, customer_id, risk_score, status)
-        VALUES (p_transaction_id, v_customer_id, 100, 'OPEN');
+        INSERT INTO alerts (transaction_id, customer_id, risk_score, severity, status)
+        VALUES (p_transaction_id, v_customer_id, 100, 'CRITICAL', 'OPEN');
         SET v_alert_id = LAST_INSERT_ID();
         INSERT INTO cases (alert_id, assigned_to, status, priority, notes)
         VALUES (v_alert_id, 'System Queue', 'NEW', 'CRITICAL', 'Instant decline: Device fingerprint resides on Blacklist.');
@@ -607,8 +615,8 @@ sp_block: BEGIN
     
     -- 6. Insert alerts and cases if risk parameters met
     IF p_decision IN ('FLAGGED', 'DECLINED') THEN
-        INSERT INTO alerts (transaction_id, customer_id, risk_score, status)
-        VALUES (p_transaction_id, v_customer_id, p_risk_score, 'OPEN');
+        INSERT INTO alerts (transaction_id, customer_id, risk_score, severity, status)
+        VALUES (p_transaction_id, v_customer_id, p_risk_score, CASE WHEN p_risk_score >= 80 THEN 'HIGH' ELSE 'MEDIUM' END, 'OPEN');
         SET v_alert_id = LAST_INSERT_ID();
         
         INSERT INTO cases (alert_id, assigned_to, status, priority, notes)

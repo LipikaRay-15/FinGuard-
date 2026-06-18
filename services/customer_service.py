@@ -7,11 +7,12 @@ from exceptions import (
     CustomerNotFoundException,
     DuplicateCustomerException,
     InvalidCustomerException,
-    ValidationException
+    ValidationException,
+    CustomerValidationException
 )
 from models import Customer, RiskProfile
 from repositories import CustomerRepository, RiskProfileRepository
-
+from services.pincode_service import PincodeService
 
 class CustomerService:
     """
@@ -95,40 +96,60 @@ class CustomerService:
         first_name: str,
         last_name: str,
         email: str,
+        date_of_birth: Optional[Any] = None,
+        gender: Optional[str] = None,
         phone: Optional[str] = None,
         status: str = "ACTIVE",
         pan: Optional[str] = None,
-        account_number: Optional[str] = None
+        account_number: Optional[str] = None,
+        pincode: Optional[str] = None,
+        city: Optional[str] = None,
+        state: Optional[str] = None,
+        country: Optional[str] = None,
+        address: Optional[str] = None,
+        risk_level: str = "LOW"
     ) -> Customer:
         """
         Validates customer attributes and inserts record if no duplicates exist.
         
         Raises:
-            InvalidCustomerException: If email/mobile/PAN format is invalid.
+            CustomerValidationException: If format validation fails.
             DuplicateCustomerException: If clashing fields exist.
         """
-        # Validate formats
-        if not self.validate_email(email):
-            raise InvalidCustomerException(f"Email format is invalid: '{email}'")
-        if phone and not self.validate_mobile(phone):
-            raise InvalidCustomerException(f"Mobile number format is invalid: '{phone}'")
-        if pan and not self.validate_pan(pan):
-            raise InvalidCustomerException(f"PAN format is invalid: '{pan}'. Expected: 5 letters, 4 digits, 1 letter.")
+        # Auto-fetch location if valid pincode is provided
+        if pincode:
+            loc = PincodeService.fetch_location_from_pincode(pincode)
+            if loc:
+                city = loc["city"]
+                state = loc["state"]
+                country = loc["country"]
+
+        cust = Customer(
+            customer_id=None,
+            first_name=first_name,
+            last_name=last_name,
+            date_of_birth=date_of_birth,
+            gender=gender,
+            email=email,
+            phone=phone,
+            status=status,
+            pan=pan,
+            account_number=account_number,
+            pincode=pincode,
+            city=city,
+            state=state,
+            country=country,
+            address=address,
+            risk_level=risk_level
+        )
+        
+        # Call validate first to collect format validation errors
+        cust.validate()
 
         # Prevent duplicate entries
         self._check_duplicates(email, pan, account_number)
 
         try:
-            cust = Customer(
-                customer_id=None,
-                first_name=first_name,
-                last_name=last_name,
-                email=email,
-                phone=phone,
-                status=status,
-                pan=pan,
-                account_number=account_number
-            )
             saved = self.customer_repo.create(cust)
             self.db.commit()
             
@@ -146,6 +167,8 @@ class CustomerService:
 
         except Exception as e:
             self.db.rollback()
+            if isinstance(e, CustomerValidationException):
+                raise
             if isinstance(e, ValidationException):
                 raise InvalidCustomerException(f"Validation failure: {e}")
             raise
@@ -156,47 +179,67 @@ class CustomerService:
         first_name: str,
         last_name: str,
         email: str,
+        date_of_birth: Optional[Any] = None,
+        gender: Optional[str] = None,
         phone: Optional[str] = None,
         status: str = "ACTIVE",
         pan: Optional[str] = None,
-        account_number: Optional[str] = None
+        account_number: Optional[str] = None,
+        pincode: Optional[str] = None,
+        city: Optional[str] = None,
+        state: Optional[str] = None,
+        country: Optional[str] = None,
+        address: Optional[str] = None,
+        risk_level: str = "LOW"
     ) -> None:
         """
         Modifies properties of an existing customer record.
         
         Raises:
             CustomerNotFoundException: If customer does not exist.
-            InvalidCustomerException: If format validations fail.
+            CustomerValidationException: If format validations fail.
             DuplicateCustomerException: If updates clash with another customer's properties.
         """
-        # Confirm existance
+        # Confirm existence
         cust = self.customer_repo.find_by_id(customer_id)
         if not cust:
             self.logger.error(f"Failed updating: Customer ID {customer_id} not found.")
             raise CustomerNotFoundException(f"Customer with ID {customer_id} does not exist.")
 
-        # Validate formats
-        if not self.validate_email(email):
-            raise InvalidCustomerException(f"Email format is invalid: '{email}'")
-        if phone and not self.validate_mobile(phone):
-            raise InvalidCustomerException(f"Mobile number format is invalid: '{phone}'")
-        if pan and not self.validate_pan(pan):
-            raise InvalidCustomerException(f"PAN format is invalid: '{pan}'. Expected: 5 letters, 4 digits, 1 letter.")
+        old_values = cust.to_dict()
+
+        # Auto-fetch location if valid pincode is provided
+        if pincode:
+            loc = PincodeService.fetch_location_from_pincode(pincode)
+            if loc:
+                city = loc["city"]
+                state = loc["state"]
+                country = loc["country"]
+
+        # Update fields
+        cust.first_name = first_name
+        cust.last_name = last_name
+        cust.date_of_birth = date_of_birth
+        cust.gender = gender
+        cust.email = email
+        cust.phone = phone
+        cust.status = status
+        cust.pan = pan
+        cust.account_number = account_number
+        cust.pincode = pincode
+        cust.city = city
+        cust.state = state
+        cust.country = country
+        cust.address = address
+        cust.risk_level = risk_level
+
+        # Call validate first to collect format validation errors
+        cust.validate()
 
         # Check for clashing duplicates excluding the current customer
         self._check_duplicates(email, pan, account_number, exclude_customer_id=customer_id)
 
-        old_values = cust.to_dict()
-
         try:
-            cust.first_name = first_name
-            cust.last_name = last_name
-            cust.email = email
-            cust.phone = phone
-            cust.status = status
-            cust.pan = pan
-            cust.account_number = account_number
-            
             self.customer_repo.update(cust)
             self.db.commit()
             self.logger.info(f"Successfully updated customer ID {customer_id}")
@@ -220,6 +263,8 @@ class CustomerService:
             )
         except Exception as ve:
             self.db.rollback()
+            if isinstance(ve, CustomerValidationException):
+                raise
             if isinstance(ve, ValidationException):
                 raise InvalidCustomerException(f"Validation failure: {ve}")
             raise

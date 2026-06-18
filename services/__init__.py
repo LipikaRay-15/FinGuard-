@@ -15,6 +15,8 @@ from .merchant_profile_service import MerchantProfileService
 from .risk_history_service import RiskHistoryService
 from .analytics_service import AnalyticsService
 from .audit_log_service import AuditLogService
+from .customer_validator import CustomerValidator
+from .pincode_service import PincodeService
 
 __all__ = [
     "CustomerService",
@@ -33,8 +35,11 @@ __all__ = [
     "MerchantProfileService",
     "RiskHistoryService",
     "AnalyticsService",
-    "AuditLogService"
+    "AuditLogService",
+    "CustomerValidator",
+    "PincodeService"
 ]
+
 
 
 

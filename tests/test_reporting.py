@@ -57,7 +57,8 @@ def test_audit_logging(db: DatabaseConnection):
         phone="+1555010077",
         status="ACTIVE",
         pan="ABCDE1234F",
-        account_number="9876543210"
+        account_number="9876543210",
+        pincode="751024"
     )
     assert cust.customer_id is not None
     
@@ -77,7 +78,8 @@ def test_audit_logging(db: DatabaseConnection):
         phone="+1555010077",
         status="ACTIVE",
         pan="ABCDE1234F",
-        account_number="9876543210"
+        account_number="9876543210",
+        pincode="751024"
     )
     
     # Verify UPDATE_CUSTOMER audit log

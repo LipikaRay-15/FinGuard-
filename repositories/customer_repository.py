@@ -15,17 +15,29 @@ class CustomerRepository(BaseRepository[Customer]):
         entity.validate()
         
         query = """
-            INSERT INTO customers (first_name, last_name, email, phone, status, pan, account_number, created_at, updated_at)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+            INSERT INTO customers (
+                first_name, last_name, date_of_birth, gender, email, phone, status, 
+                pan, account_number, pincode, city, state, country, address, risk_level, 
+                created_at, updated_at
+            )
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
         """
         params = (
             entity.first_name,
             entity.last_name,
+            entity.date_of_birth,
+            entity.gender,
             entity.email,
             entity.phone,
             entity.status,
             entity.pan,
             entity.account_number,
+            entity.pincode,
+            entity.city,
+            entity.state,
+            entity.country,
+            entity.address,
+            entity.risk_level,
             entity.created_at,
             entity.updated_at
         )
@@ -38,17 +50,28 @@ class CustomerRepository(BaseRepository[Customer]):
         entity.validate()
         query = """
             UPDATE customers
-            SET first_name = %s, last_name = %s, email = %s, phone = %s, status = %s, pan = %s, account_number = %s, updated_at = NOW()
+            SET first_name = %s, last_name = %s, date_of_birth = %s, gender = %s, email = %s, 
+                phone = %s, status = %s, pan = %s, account_number = %s, pincode = %s, 
+                city = %s, state = %s, country = %s, address = %s, risk_level = %s, 
+                updated_at = NOW()
             WHERE customer_id = %s
         """
         params = (
             entity.first_name,
             entity.last_name,
+            entity.date_of_birth,
+            entity.gender,
             entity.email,
             entity.phone,
             entity.status,
             entity.pan,
             entity.account_number,
+            entity.pincode,
+            entity.city,
+            entity.state,
+            entity.country,
+            entity.address,
+            entity.risk_level,
             entity.customer_id
         )
         cursor = self.db.execute(query, params)
