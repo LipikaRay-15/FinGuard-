@@ -9,6 +9,7 @@ from .case_repository import CaseRepository
 from .risk_profile_repository import RiskProfileRepository
 from .event_repository import EventRepository
 from .audit_repository import AuditRepository
+from .rule_execution_log_repository import RuleExecutionLogRepository
 
 __all__ = [
     "BaseRepository",
@@ -22,4 +23,5 @@ __all__ = [
     "RiskProfileRepository",
     "EventRepository",
     "AuditRepository",
+    "RuleExecutionLogRepository",
 ]
