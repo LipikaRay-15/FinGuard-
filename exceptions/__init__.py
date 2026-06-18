@@ -3,10 +3,18 @@ from .custom_exceptions import (
     ValidationException,
     RuleException,
     TransactionException,
+    TransactionNotFoundException,
+    InvalidTransactionException,
     FraudDetectionException,
     CaseException,
     ConnectionException,
     QueryExecutionException,
+    CustomerNotFoundException,
+    DuplicateCustomerException,
+    InvalidCustomerException,
+    DeviceNotFoundException,
+    DuplicateDeviceException,
+    InvalidDeviceException,
 )
 
 __all__ = [
@@ -14,8 +22,17 @@ __all__ = [
     "ValidationException",
     "RuleException",
     "TransactionException",
+    "TransactionNotFoundException",
+    "InvalidTransactionException",
     "FraudDetectionException",
     "CaseException",
     "ConnectionException",
     "QueryExecutionException",
+    "CustomerNotFoundException",
+    "DuplicateCustomerException",
+    "InvalidCustomerException",
+    "DeviceNotFoundException",
+    "DuplicateDeviceException",
+    "InvalidDeviceException",
 ]
+

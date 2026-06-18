@@ -46,11 +46,15 @@ CREATE TABLE customers (
     email VARCHAR(100) NOT NULL,
     phone VARCHAR(20),
     status VARCHAR(20) DEFAULT 'ACTIVE',
+    pan VARCHAR(10) DEFAULT NULL,
+    account_number VARCHAR(20) DEFAULT NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     
     CONSTRAINT uq_customer_email UNIQUE (email),
     CONSTRAINT uq_customer_phone UNIQUE (phone),
+    CONSTRAINT uq_customer_pan UNIQUE (pan),
+    CONSTRAINT uq_customer_account UNIQUE (account_number),
     CONSTRAINT chk_customer_status CHECK (status IN ('ACTIVE', 'SUSPENDED', 'BLOCKED'))
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
@@ -75,6 +79,7 @@ CREATE TABLE devices (
     operating_system VARCHAR(50),
     user_agent VARCHAR(255),
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    last_seen TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     
     CONSTRAINT uq_device_fingerprint UNIQUE (device_fingerprint)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
@@ -84,14 +89,19 @@ CREATE TABLE fraud_rules (
     rule_id INT AUTO_INCREMENT PRIMARY KEY,
     rule_name VARCHAR(100) NOT NULL,
     description TEXT,
-    criteria_json JSON NOT NULL, -- Store rule-specific numeric variables
-    risk_score INT DEFAULT 0,
-    is_active BOOLEAN DEFAULT TRUE,
+    field_name VARCHAR(100) NOT NULL,
+    operator VARCHAR(20) NOT NULL,
+    threshold VARCHAR(255) NOT NULL,
+    risk_points INT DEFAULT 0,
+    priority INT DEFAULT 0,
+    severity VARCHAR(20) DEFAULT 'MEDIUM',
+    enabled BOOLEAN DEFAULT TRUE,
+    stop_execution BOOLEAN DEFAULT FALSE,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     
-    CONSTRAINT uq_rule_name UNIQUE (rule_name),
-    CONSTRAINT chk_rule_risk_score CHECK (risk_score BETWEEN 0 AND 100)
+    CONSTRAINT uq_rule_name UNIQUE (rule_name)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 
 -- Table: transactions
 CREATE TABLE transactions (
@@ -162,14 +172,13 @@ CREATE TABLE whitelisted_devices (
 -- Table: events
 CREATE TABLE events (
     event_id INT AUTO_INCREMENT PRIMARY KEY,
-    event_type VARCHAR(50) NOT NULL, -- e.g. LOGIN, LOGOUT, PASSWORD_RESET
-    customer_id INT,
-    ip_address VARCHAR(45),
+    event_type VARCHAR(50) NOT NULL,
+    entity_type VARCHAR(50) NOT NULL,
+    entity_id VARCHAR(50),
     details JSON,
-    event_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    
-    CONSTRAINT fk_event_customer FOREIGN KEY (customer_id) REFERENCES customers (customer_id) ON DELETE SET NULL
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 
 -- Table: alerts
 CREATE TABLE alerts (
@@ -273,7 +282,8 @@ CREATE INDEX idx_alerts_status_score ON alerts (status, risk_score);
 CREATE INDEX idx_cases_status_priority ON cases (status, priority);
 
 -- Event timeline indexation
-CREATE INDEX idx_events_customer_type ON events (customer_id, event_type);
+CREATE INDEX idx_events_entity ON events (entity_type, entity_id);
+
 
 -- Auditing & logs indexing
 CREATE INDEX idx_audit_table_record ON audit_logs (affected_table, record_id);
@@ -489,22 +499,25 @@ sp_block: BEGIN
     -- 4. Evaluate Fraud Rules
     
     -- Fetch config for High Amount Rule
-    SELECT is_active, risk_score, CAST(JSON_UNQUOTE(JSON_EXTRACT(criteria_json, '$.max_amount')) AS DECIMAL(15,2))
+    SELECT enabled, risk_points, CAST(threshold AS DECIMAL(15,2))
     INTO v_rule_high_amount_active, v_rule_high_amount_score, v_rule_high_amount_val
     FROM fraud_rules
     WHERE rule_name = 'High Transaction Amount' LIMIT 1;
     
     -- Fetch config for Velocity Rule
-    SELECT is_active, risk_score, CAST(JSON_UNQUOTE(JSON_EXTRACT(criteria_json, '$.max_transactions')) AS SIGNED), CAST(JSON_UNQUOTE(JSON_EXTRACT(criteria_json, '$.time_window_minutes')) AS SIGNED)
-    INTO v_rule_velocity_active, v_rule_velocity_score, v_rule_velocity_limit, v_rule_velocity_window
+    SELECT enabled, risk_points
+    INTO v_rule_velocity_active, v_rule_velocity_score
     FROM fraud_rules
     WHERE rule_name = 'Rapid Velocity Limit' LIMIT 1;
+    SET v_rule_velocity_limit = 3;
+    SET v_rule_velocity_window = 60;
     
     -- Fetch config for MCC Merchant Rule
-    SELECT is_active, risk_score
+    SELECT enabled, risk_points
     INTO v_rule_mcc_active, v_rule_mcc_score
     FROM fraud_rules
     WHERE rule_name = 'High-Risk Merchant Category' LIMIT 1;
+
     
     -- Run Check 1: High Transaction Amount
     IF v_rule_high_amount_active AND v_amount > v_rule_high_amount_val THEN
@@ -599,10 +612,11 @@ END;
 -- ========================================================================
 
 -- Seed active rule configurations
-INSERT INTO fraud_rules (rule_name, description, criteria_json, risk_score, is_active) VALUES
-('High Transaction Amount', 'Flags single transactions exceeding the max amount threshold.', '{"max_amount": 10000.00}', 75, TRUE),
-('Rapid Velocity Limit', 'Flags frequent transaction volumes over brief durations.', '{"max_transactions": 3, "time_window_minutes": 60}', 80, TRUE),
-('High-Risk Merchant Category', 'Flags activities at merchants flagged with high-risk MCC codes.', '{"flagged_mcc": ["7995", "5933", "5967"]}', 60, TRUE);
+INSERT INTO fraud_rules (rule_name, description, field_name, operator, threshold, risk_points, priority, severity, enabled, stop_execution) VALUES
+('High Transaction Amount', 'Flags single transactions exceeding the max amount threshold.', 'amount', '>', '10000.00', 75, 20, 'HIGH', TRUE, FALSE),
+('Rapid Velocity Limit', 'Flags frequent transaction volumes over brief durations.', 'amount', '>', '0', 80, 10, 'CRITICAL', TRUE, FALSE),
+('High-Risk Merchant Category', 'Flags activities at merchants flagged with high-risk MCC codes.', 'mcc', 'in', '7995,5933,5967', 60, 30, 'MEDIUM', TRUE, FALSE);
+
 
 -- Seed Customers
 INSERT INTO customers (first_name, last_name, email, phone, status) VALUES

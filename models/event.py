@@ -6,21 +6,21 @@ from exceptions import ValidationException
 class Event:
     """
     Represents an Event domain entity in the FinGuard platform.
-    Logs auxiliary user events (e.g. login attempts, reset passwords).
+    Logs auxiliary system actions (e.g. CUSTOMER_CREATED, TRANSACTION_FAILED) linked to entities.
     """
     def __init__(
         self,
         event_id: Optional[int],
         event_type: str,
-        customer_id: Optional[int] = None,
-        ip_address: Optional[str] = None,
+        entity_type: str,
+        entity_id: Optional[str] = None,
         details: Optional[Union[str, Dict[str, Any]]] = None,
-        event_time: Optional[datetime] = None
+        created_at: Optional[datetime] = None
     ) -> None:
         self.event_id = event_id
         self.event_type = event_type
-        self.customer_id = customer_id
-        self.ip_address = ip_address
+        self.entity_type = entity_type
+        self.entity_id = entity_id
         
         # Details parsed as dict
         if isinstance(details, str):
@@ -31,7 +31,7 @@ class Event:
         else:
             self.details = details or {}
             
-        self.event_time = event_time or datetime.now()
+        self.created_at = created_at or datetime.now()
 
     def validate(self) -> None:
         """
@@ -41,8 +41,8 @@ class Event:
         """
         if not self.event_type or not self.event_type.strip():
             raise ValidationException("Event event_type cannot be empty.")
-        if self.customer_id is not None and self.customer_id <= 0:
-            raise ValidationException(f"Invalid customer_id: {self.customer_id}. Must be positive.")
+        if not self.entity_type or not self.entity_type.strip():
+            raise ValidationException("Event entity_type cannot be empty.")
         if not isinstance(self.details, dict):
             raise ValidationException("Event details must be a valid JSON dictionary.")
 
@@ -53,10 +53,10 @@ class Event:
         return {
             "event_id": self.event_id,
             "event_type": self.event_type,
-            "customer_id": self.customer_id,
-            "ip_address": self.ip_address,
+            "entity_type": self.entity_type,
+            "entity_id": self.entity_id,
             "details": self.details,
-            "event_time": self.event_time.isoformat() if isinstance(self.event_time, datetime) else self.event_time,
+            "created_at": self.created_at.isoformat() if isinstance(self.created_at, datetime) else self.created_at,
         }
 
     @classmethod
@@ -64,10 +64,10 @@ class Event:
         """
         Deserializes a dictionary into an Event entity object instance.
         """
-        evt_time = data.get("event_time")
-        if isinstance(evt_time, str):
+        created_at = data.get("created_at") or data.get("event_time")
+        if isinstance(created_at, str):
             try:
-                evt_time = datetime.fromisoformat(evt_time)
+                created_at = datetime.fromisoformat(created_at)
             except ValueError:
                 pass
 
@@ -76,11 +76,11 @@ class Event:
         return cls(
             event_id=data.get("event_id"),
             event_type=data.get("event_type", ""),
-            customer_id=data.get("customer_id"),
-            ip_address=data.get("ip_address"),
+            entity_type=data.get("entity_type", ""),
+            entity_id=data.get("entity_id") or data.get("customer_id"), # fallback for mapping
             details=details,
-            event_time=evt_time
+            created_at=created_at
         )
 
     def __str__(self) -> str:
-        return f"Event(ID: {self.event_id}, Type: {self.event_type}, Customer: {self.customer_id}, IP: {self.ip_address})"
+        return f"Event(ID: {self.event_id}, Type: {self.event_type}, Entity: {self.entity_type}:{self.entity_id})"

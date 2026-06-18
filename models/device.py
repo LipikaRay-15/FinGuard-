@@ -6,6 +6,7 @@ class Device:
     """
     Represents a Device domain entity in the FinGuard platform.
     Used for machine/browser fingerprinting check correlations.
+    Now includes last_seen tracking.
     """
     def __init__(
         self,
@@ -14,7 +15,8 @@ class Device:
         ip_address: str,
         operating_system: Optional[str] = None,
         user_agent: Optional[str] = None,
-        created_at: Optional[datetime] = None
+        created_at: Optional[datetime] = None,
+        last_seen: Optional[datetime] = None
     ) -> None:
         self.device_id = device_id
         self.device_fingerprint = device_fingerprint
@@ -22,6 +24,7 @@ class Device:
         self.operating_system = operating_system
         self.user_agent = user_agent
         self.created_at = created_at or datetime.now()
+        self.last_seen = last_seen or datetime.now()
 
     def validate(self) -> None:
         """
@@ -51,6 +54,7 @@ class Device:
             "operating_system": self.operating_system,
             "user_agent": self.user_agent,
             "created_at": self.created_at.isoformat() if isinstance(self.created_at, datetime) else self.created_at,
+            "last_seen": self.last_seen.isoformat() if isinstance(self.last_seen, datetime) else self.last_seen,
         }
 
     @classmethod
@@ -65,14 +69,22 @@ class Device:
             except ValueError:
                 pass
 
+        last_seen = data.get("last_seen")
+        if isinstance(last_seen, str):
+            try:
+                last_seen = datetime.fromisoformat(last_seen)
+            except ValueError:
+                pass
+
         return cls(
             device_id=data.get("device_id"),
             device_fingerprint=data.get("device_fingerprint", ""),
             ip_address=data.get("ip_address", ""),
             operating_system=data.get("operating_system"),
             user_agent=data.get("user_agent"),
-            created_at=created_at
+            created_at=created_at,
+            last_seen=last_seen
         )
 
     def __str__(self) -> str:
-        return f"Device(ID: {self.device_id}, Fingerprint: {self.device_fingerprint[:8]}..., IP: {self.ip_address}, OS: {self.operating_system})"
+        return f"Device(ID: {self.device_id}, Fingerprint: {self.device_fingerprint[:8]}..., IP: {self.ip_address}, OS: {self.operating_system}, LastSeen: {self.last_seen})"

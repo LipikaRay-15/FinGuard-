@@ -1,0 +1,271 @@
+import logging
+import re
+from typing import Any, Dict, List, Optional
+
+from exceptions import (
+    CustomerNotFoundException,
+    DuplicateCustomerException,
+    InvalidCustomerException,
+    ValidationException
+)
+from models import Customer, RiskProfile
+from repositories import CustomerRepository, RiskProfileRepository
+
+
+class CustomerService:
+    """
+    Service class orchestrating business logic for Customer management.
+    Integrates validators, repository queries, duplicate preventions,
+    and risk profile evaluations.
+    """
+    def __init__(self) -> None:
+        self.customer_repo = CustomerRepository()
+        self.risk_repo = RiskProfileRepository()
+        self.logger = logging.getLogger("finguard.services.customer")
+
+    @staticmethod
+    def validate_email(email: str) -> bool:
+        """
+        Validates email structure using standard RFC 5322 regex.
+        """
+        if not email:
+            return False
+        pattern = r"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$"
+        return bool(re.match(pattern, email))
+
+    @staticmethod
+    def validate_mobile(mobile: str) -> bool:
+        """
+        Validates mobile numbers (+ prefix followed by 10 to 15 digits).
+        """
+        if not mobile:
+            return False
+        pattern = r"^\+?[0-9]{10,15}$"
+        return bool(re.match(pattern, mobile))
+
+    @staticmethod
+    def validate_pan(pan: str) -> bool:
+        """
+        Validates Indian Permanent Account Number (PAN) format:
+        5 uppercase letters, 4 numeric digits, 1 uppercase letter.
+        """
+        if not pan:
+            return False
+        pattern = r"^[A-Z]{5}[0-9]{4}[A-Z]{1}$"
+        return bool(re.match(pattern, pan.upper()))
+
+    def _check_duplicates(
+        self,
+        email: str,
+        pan: Optional[str],
+        account_number: Optional[str],
+        exclude_customer_id: Optional[int] = None
+    ) -> None:
+        """
+        Verifies unique constraints before inserts or updates.
+        Raises DuplicateCustomerException if a clash is identified.
+        """
+        # 1. Email check
+        clashing_emails = self.customer_repo.search({"email": email})
+        for c in clashing_emails:
+            if exclude_customer_id is None or c.customer_id != exclude_customer_id:
+                self.logger.warning(f"Duplicate check clashing on email: {email}")
+                raise DuplicateCustomerException(f"Customer with email '{email}' already exists.")
+
+        # 2. PAN check
+        if pan:
+            clashing_pans = self.customer_repo.search({"pan": pan})
+            for c in clashing_pans:
+                if exclude_customer_id is None or c.customer_id != exclude_customer_id:
+                    self.logger.warning(f"Duplicate check clashing on PAN: {pan}")
+                    raise DuplicateCustomerException(f"Customer with PAN '{pan}' already exists.")
+
+        # 3. Account Number check
+        if account_number:
+            clashing_accounts = self.customer_repo.search({"account_number": account_number})
+            for c in clashing_accounts:
+                if exclude_customer_id is None or c.customer_id != exclude_customer_id:
+                    self.logger.warning(f"Duplicate check clashing on account number: {account_number}")
+                    raise DuplicateCustomerException(f"Customer with account number '{account_number}' already exists.")
+
+    def create_customer(
+        self,
+        first_name: str,
+        last_name: str,
+        email: str,
+        phone: Optional[str] = None,
+        status: str = "ACTIVE",
+        pan: Optional[str] = None,
+        account_number: Optional[str] = None
+    ) -> Customer:
+        """
+        Validates customer attributes and inserts record if no duplicates exist.
+        
+        Raises:
+            InvalidCustomerException: If email/mobile/PAN format is invalid.
+            DuplicateCustomerException: If clashing fields exist.
+        """
+        # Validate formats
+        if not self.validate_email(email):
+            raise InvalidCustomerException(f"Email format is invalid: '{email}'")
+        if phone and not self.validate_mobile(phone):
+            raise InvalidCustomerException(f"Mobile number format is invalid: '{phone}'")
+        if pan and not self.validate_pan(pan):
+            raise InvalidCustomerException(f"PAN format is invalid: '{pan}'. Expected: 5 letters, 4 digits, 1 letter.")
+
+        # Prevent duplicate entries
+        self._check_duplicates(email, pan, account_number)
+
+        try:
+            cust = Customer(
+                customer_id=None,
+                first_name=first_name,
+                last_name=last_name,
+                email=email,
+                phone=phone,
+                status=status,
+                pan=pan,
+                account_number=account_number
+            )
+            created = self.customer_repo.create(cust)
+            self.logger.info(f"Successfully created customer ID {created.customer_id}")
+            from engines.event_manager import EventManager
+            EventManager().log_event(
+                event_type="CUSTOMER_CREATED",
+                entity_type="CUSTOMER",
+                entity_id=created.customer_id,
+                details={"email": created.email, "status": created.status}
+            )
+            return created
+        except ValidationException as ve:
+            raise InvalidCustomerException(f"Validation failure: {ve}")
+
+    def update_customer(
+        self,
+        customer_id: int,
+        first_name: str,
+        last_name: str,
+        email: str,
+        phone: Optional[str] = None,
+        status: str = "ACTIVE",
+        pan: Optional[str] = None,
+        account_number: Optional[str] = None
+    ) -> None:
+        """
+        Modifies properties of an existing customer record.
+        
+        Raises:
+            CustomerNotFoundException: If customer does not exist.
+            InvalidCustomerException: If format validations fail.
+            DuplicateCustomerException: If updates clash with another customer's properties.
+        """
+        # Confirm existance
+        cust = self.customer_repo.find_by_id(customer_id)
+        if not cust:
+            self.logger.error(f"Failed updating: Customer ID {customer_id} not found.")
+            raise CustomerNotFoundException(f"Customer with ID {customer_id} does not exist.")
+
+        # Validate formats
+        if not self.validate_email(email):
+            raise InvalidCustomerException(f"Email format is invalid: '{email}'")
+        if phone and not self.validate_mobile(phone):
+            raise InvalidCustomerException(f"Mobile number format is invalid: '{phone}'")
+        if pan and not self.validate_pan(pan):
+            raise InvalidCustomerException(f"PAN format is invalid: '{pan}'. Expected: 5 letters, 4 digits, 1 letter.")
+
+        # Check for clashing duplicates excluding the current customer
+        self._check_duplicates(email, pan, account_number, exclude_customer_id=customer_id)
+
+        try:
+            cust.first_name = first_name
+            cust.last_name = last_name
+            cust.email = email
+            cust.phone = phone
+            cust.status = status
+            cust.pan = pan
+            cust.account_number = account_number
+            
+            self.customer_repo.update(cust)
+            self.logger.info(f"Successfully updated customer ID {customer_id}")
+            from engines.event_manager import EventManager
+            EventManager().log_event(
+                event_type="CUSTOMER_UPDATED",
+                entity_type="CUSTOMER",
+                entity_id=customer_id,
+                details={"email": email, "status": status}
+            )
+        except ValidationException as ve:
+            raise InvalidCustomerException(f"Validation failure: {ve}")
+
+    def delete_customer(self, customer_id: int) -> None:
+        """
+        Removes customer profile.
+        
+        Raises:
+            CustomerNotFoundException: If customer does not exist.
+        """
+        cust = self.customer_repo.find_by_id(customer_id)
+        if not cust:
+            self.logger.error(f"Failed deletion: Customer ID {customer_id} not found.")
+            raise CustomerNotFoundException(f"Customer with ID {customer_id} does not exist.")
+            
+        self.customer_repo.delete(customer_id)
+        self.logger.info(f"Successfully deleted customer ID {customer_id}")
+
+    def get_customer_by_id(self, customer_id: int) -> Customer:
+        """
+        Gets customer by id.
+        
+        Raises:
+            CustomerNotFoundException: If customer does not exist.
+        """
+        cust = self.customer_repo.find_by_id(customer_id)
+        if not cust:
+            raise CustomerNotFoundException(f"Customer with ID {customer_id} does not exist.")
+        return cust
+
+    def search_customer(self, filters: Dict[str, Any]) -> List[Customer]:
+        """
+        Queries customers matching key-value constraints.
+        """
+        return self.customer_repo.search(filters)
+
+    def change_risk_level(self, customer_id: int, new_score: int, new_tier: str) -> None:
+        """
+        Recalibrates current risk metrics, updating or initializing risk profile settings.
+        
+        Raises:
+            CustomerNotFoundException: If customer does not exist.
+            InvalidCustomerException: If risk tier or score violates boundary constraints.
+        """
+        # Validate customer existance
+        cust = self.customer_repo.find_by_id(customer_id)
+        if not cust:
+            raise CustomerNotFoundException(f"Customer with ID {customer_id} does not exist.")
+
+        # Validate risk parameters
+        if not (0 <= new_score <= 100):
+            raise InvalidCustomerException(f"Risk score must be between 0 and 100. Got: {new_score}")
+        if new_tier not in ("LOW", "MEDIUM", "HIGH", "CRITICAL"):
+            raise InvalidCustomerException(f"Invalid risk tier: '{new_tier}'. Expected: LOW, MEDIUM, HIGH, CRITICAL.")
+
+        try:
+            # Query existing profile
+            profiles = self.risk_repo.search({"customer_id": customer_id})
+            if profiles:
+                profile = profiles[0]
+                profile.current_risk_score = new_score
+                profile.risk_tier = new_tier
+                self.risk_repo.update(profile)
+                self.logger.info(f"Updated risk profile for customer {customer_id} (Score={new_score}, Tier={new_tier})")
+            else:
+                profile = RiskProfile(
+                    profile_id=None,
+                    customer_id=customer_id,
+                    current_risk_score=new_score,
+                    risk_tier=new_tier
+                )
+                self.risk_repo.create(profile)
+                self.logger.info(f"Created risk profile for customer {customer_id} (Score={new_score}, Tier={new_tier})")
+        except ValidationException as ve:
+            raise InvalidCustomerException(f"Risk evaluation constraint failure: {ve}")
