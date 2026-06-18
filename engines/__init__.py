@@ -4,6 +4,8 @@ from .rule_engine import RuleEngine
 from .fraud_detector import FraudDetector
 from .fraud_detection_engine import FraudDetectionEngine
 from .risk_calculator import RiskCalculator
+from .explainable_risk_engine import ExplainableRiskEngine
+from .alert_manager import AlertManager
 
 __all__ = [
     "TransactionEngine",
@@ -11,7 +13,9 @@ __all__ = [
     "RuleEngine",
     "FraudDetector",
     "FraudDetectionEngine",
-    "RiskCalculator"
+    "RiskCalculator",
+    "ExplainableRiskEngine",
+    "AlertManager"
 ]
 
 

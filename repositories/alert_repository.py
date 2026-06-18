@@ -13,13 +13,14 @@ class AlertRepository(BaseRepository[Alert]):
     def create(self, entity: Alert) -> Alert:
         entity.validate()
         query = """
-            INSERT INTO alerts (transaction_id, customer_id, risk_score, status, created_at)
-            VALUES (%s, %s, %s, %s, %s)
+            INSERT INTO alerts (transaction_id, customer_id, risk_score, severity, status, created_at)
+            VALUES (%s, %s, %s, %s, %s, %s)
         """
         params = (
             entity.transaction_id,
             entity.customer_id,
             entity.risk_score,
+            entity.severity,
             entity.status,
             entity.created_at
         )
@@ -32,13 +33,14 @@ class AlertRepository(BaseRepository[Alert]):
         entity.validate()
         query = """
             UPDATE alerts
-            SET transaction_id = %s, customer_id = %s, risk_score = %s, status = %s
+            SET transaction_id = %s, customer_id = %s, risk_score = %s, severity = %s, status = %s
             WHERE alert_id = %s
         """
         params = (
             entity.transaction_id,
             entity.customer_id,
             entity.risk_score,
+            entity.severity,
             entity.status,
             entity.alert_id
         )

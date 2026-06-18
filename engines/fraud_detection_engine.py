@@ -3,9 +3,9 @@ from typing import Any, Dict, List, Tuple
 
 from database import DatabaseConnection
 from exceptions import FraudDetectionException, TransactionNotFoundException
-from models import Transaction, FraudRule, RuleExecutionLog
-from repositories import TransactionRepository, RuleRepository, RuleExecutionLogRepository
-from services.event_service import EventService
+from models import Transaction, FraudRule
+from repositories import TransactionRepository, RuleRepository
+from services.rule_execution_service import RuleExecutionService
 from engines.fraud_detector import FraudDetector
 
 logger = logging.getLogger("finguard.engines.fraud_detection_engine")
@@ -21,8 +21,7 @@ class FraudDetectionEngine:
         self.db = DatabaseConnection()
         self.tx_repo = TransactionRepository()
         self.rule_repo = RuleRepository()
-        self.rule_log_repo = RuleExecutionLogRepository()
-        self.event_service = EventService()
+        self.rule_exec_service = RuleExecutionService()
         self.detector = FraudDetector()
         
         # Self-healing check: seed defaults if missing
@@ -228,30 +227,25 @@ class FraudDetectionEngine:
                 transaction, active_rules
             )
             
-            # Create a lookup for triggered rules mapping rule_id -> points
-            triggered_map = {r["rule_id"]: r["risk_points"] for r in triggered_rules}
+            # Create a lookup for triggered rules mapping rule_id -> triggered details
+            triggered_map = {r["rule_id"]: r for r in triggered_rules}
             
             # 4. Log executions for all evaluated rules in database & notify events
             for rule in active_rules:
                 is_triggered = rule.rule_id in triggered_map
-                points_awarded = triggered_map[rule.rule_id] if is_triggered else 0
+                points_awarded = triggered_map[rule.rule_id]["risk_points"] if is_triggered else 0
+                matching_reason = triggered_map[rule.rule_id]["reason"] if is_triggered else f"Rule did not trigger: conditions for {rule.rule_name} not met."
                 
-                # Persist to rule_execution_logs
-                self.log_rule_execution(transaction_id, rule.rule_id, is_triggered, points_awarded)
-                
-                # Publish event if triggered
-                if is_triggered:
-                    matching_reason = next((r["reason"] for r in triggered_rules if r["rule_id"] == rule.rule_id), "")
-                    self.event_service.create_event(
-                        event_type="RULE_TRIGGERED",
-                        entity_type="RULE",
-                        entity_id=rule.rule_name,
-                        details={
-                            "transaction_id": transaction_id,
-                            "risk_score_awarded": points_awarded,
-                            "reason": matching_reason
-                        }
-                    )
+                # Persist to rule_execution_logs and dispatch events via service
+                self.rule_exec_service.log_rule_execution(
+                    transaction_id=transaction_id,
+                    rule_id=rule.rule_id,
+                    triggered=is_triggered,
+                    risk_points=points_awarded,
+                    rule_name=rule.rule_name,
+                    severity=rule.severity,
+                    reason=matching_reason
+                )
             
             # 5. Update transaction decision status based on score
             old_status = transaction.status
@@ -279,26 +273,3 @@ class FraudDetectionEngine:
             if isinstance(e, TransactionNotFoundException):
                 raise
             raise FraudDetectionException(f"Fraud check failed: {e}")
-
-    def log_rule_execution(
-        self,
-        transaction_id: int,
-        rule_id: int,
-        triggered: bool,
-        risk_points: int
-    ) -> None:
-        """
-        Creates and persists a RuleExecutionLog audit record.
-        """
-        try:
-            log = RuleExecutionLog(
-                execution_id=None,
-                transaction_id=transaction_id,
-                rule_id=rule_id,
-                triggered=triggered,
-                risk_score_awarded=risk_points
-            )
-            self.rule_log_repo.create(log)
-            # Commit is managed by caller transaction context
-        except Exception as e:
-            logger.error(f"Failed to log rule {rule_id} execution for tx {transaction_id}: {e}", exc_info=True)

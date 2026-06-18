@@ -19,6 +19,8 @@ DROP TABLE IF EXISTS whitelisted_devices;
 DROP TABLE IF EXISTS whitelisted_customers;
 DROP TABLE IF EXISTS blacklisted_devices;
 DROP TABLE IF EXISTS blacklisted_customers;
+DROP TABLE IF EXISTS blocked_pans;
+DROP TABLE IF EXISTS blocked_accounts;
 DROP TABLE IF EXISTS transactions;
 DROP TABLE IF EXISTS fraud_rules;
 DROP TABLE IF EXISTS devices;
@@ -169,6 +171,20 @@ CREATE TABLE whitelisted_devices (
     CONSTRAINT fk_wl_device FOREIGN KEY (device_id) REFERENCES devices (device_id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+-- Table: blocked_pans
+CREATE TABLE blocked_pans (
+    pan VARCHAR(10) PRIMARY KEY,
+    reason VARCHAR(255) NOT NULL,
+    blocked_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Table: blocked_accounts
+CREATE TABLE blocked_accounts (
+    account_number VARCHAR(20) PRIMARY KEY,
+    reason VARCHAR(255) NOT NULL,
+    blocked_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 -- Table: events
 CREATE TABLE events (
     event_id INT AUTO_INCREMENT PRIMARY KEY,
@@ -186,6 +202,7 @@ CREATE TABLE alerts (
     transaction_id INT NOT NULL,
     customer_id INT NOT NULL,
     risk_score INT NOT NULL,
+    severity VARCHAR(20) NOT NULL,
     status VARCHAR(20) DEFAULT 'OPEN',
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     
@@ -193,7 +210,8 @@ CREATE TABLE alerts (
     CONSTRAINT fk_alert_transaction FOREIGN KEY (transaction_id) REFERENCES transactions (transaction_id) ON DELETE CASCADE,
     CONSTRAINT fk_alert_customer FOREIGN KEY (customer_id) REFERENCES customers (customer_id) ON DELETE CASCADE,
     CONSTRAINT chk_alert_risk_score CHECK (risk_score BETWEEN 0 AND 100),
-    CONSTRAINT chk_alert_status CHECK (status IN ('OPEN', 'UNDER_REVIEW', 'RESOLVED_FALSE_POSITIVE', 'RESOLVED_TRUE_POSITIVE'))
+    CONSTRAINT chk_alert_status CHECK (status IN ('OPEN', 'UNDER_REVIEW', 'RESOLVED', 'FALSE_POSITIVE', 'CLOSED')),
+    CONSTRAINT chk_alert_severity CHECK (severity IN ('LOW', 'MEDIUM', 'HIGH', 'CRITICAL'))
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Table: cases
@@ -258,8 +276,11 @@ CREATE TABLE rule_execution_logs (
     execution_id INT AUTO_INCREMENT PRIMARY KEY,
     transaction_id INT NOT NULL,
     rule_id INT NOT NULL,
+    rule_name VARCHAR(100) NOT NULL,
     triggered BOOLEAN NOT NULL,
     risk_score_awarded INT NOT NULL,
+    severity VARCHAR(20) NOT NULL,
+    reason TEXT,
     execution_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     
     CONSTRAINT fk_rel_transaction FOREIGN KEY (transaction_id) REFERENCES transactions (transaction_id) ON DELETE CASCADE,

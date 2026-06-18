@@ -13,6 +13,7 @@ class Alert:
         transaction_id: int,
         customer_id: int,
         risk_score: int,
+        severity: str,
         status: str = "OPEN",
         created_at: Optional[datetime] = None
     ) -> None:
@@ -20,7 +21,8 @@ class Alert:
         self.transaction_id = transaction_id
         self.customer_id = customer_id
         self.risk_score = risk_score
-        self.status = status
+        self.severity = severity.upper() if severity else "MEDIUM"
+        self.status = status.upper() if status else "OPEN"
         self.created_at = created_at or datetime.now()
 
     def validate(self) -> None:
@@ -35,7 +37,9 @@ class Alert:
             raise ValidationException(f"Invalid customer_id: {self.customer_id}. Must be positive.")
         if not (0 <= self.risk_score <= 100):
             raise ValidationException(f"Alert risk_score must be between 0 and 100. Got: {self.risk_score}")
-        if self.status not in ("OPEN", "UNDER_REVIEW", "RESOLVED_FALSE_POSITIVE", "RESOLVED_TRUE_POSITIVE"):
+        if self.severity not in ("LOW", "MEDIUM", "HIGH", "CRITICAL"):
+            raise ValidationException(f"Invalid alert severity: '{self.severity}'")
+        if self.status not in ("OPEN", "UNDER_REVIEW", "RESOLVED", "FALSE_POSITIVE", "CLOSED"):
             raise ValidationException(f"Invalid alert status: '{self.status}'")
 
     def to_dict(self) -> Dict[str, Any]:
@@ -47,6 +51,7 @@ class Alert:
             "transaction_id": self.transaction_id,
             "customer_id": self.customer_id,
             "risk_score": self.risk_score,
+            "severity": self.severity,
             "status": self.status,
             "created_at": self.created_at.isoformat() if isinstance(self.created_at, datetime) else self.created_at,
         }
@@ -68,9 +73,10 @@ class Alert:
             transaction_id=data.get("transaction_id", 0),
             customer_id=data.get("customer_id", 0),
             risk_score=data.get("risk_score", 0),
+            severity=data.get("severity", "MEDIUM"),
             status=data.get("status", "OPEN"),
             created_at=created_at
         )
 
     def __str__(self) -> str:
-        return f"Alert(ID: {self.alert_id}, Tx: {self.transaction_id}, Customer: {self.customer_id}, Risk: {self.risk_score}, Status: {self.status})"
+        return f"Alert(ID: {self.alert_id}, Tx: {self.transaction_id}, Customer: {self.customer_id}, Risk: {self.risk_score}, Severity: {self.severity}, Status: {self.status})"

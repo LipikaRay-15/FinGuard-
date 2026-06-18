@@ -13,16 +13,19 @@ class RuleExecutionLogRepository(BaseRepository[RuleExecutionLog]):
     def create(self, entity: RuleExecutionLog) -> RuleExecutionLog:
         entity.validate()
         query = """
-            INSERT INTO rule_execution_logs (transaction_id, rule_id, triggered, risk_score_awarded, execution_time)
-            VALUES (%s, %s, %s, %s, %s)
+            INSERT INTO rule_execution_logs (transaction_id, rule_id, rule_name, triggered, risk_score_awarded, severity, reason, execution_time)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
         """
         # Convert bool triggered to 1 or 0 for MySQL
         triggered_val = 1 if entity.triggered else 0
         params = (
             entity.transaction_id,
             entity.rule_id,
+            entity.rule_name,
             triggered_val,
             entity.risk_score_awarded,
+            entity.severity,
+            entity.reason,
             entity.execution_time
         )
         cursor = self.db.execute(query, params)
@@ -34,15 +37,18 @@ class RuleExecutionLogRepository(BaseRepository[RuleExecutionLog]):
         entity.validate()
         query = """
             UPDATE rule_execution_logs
-            SET transaction_id = %s, rule_id = %s, triggered = %s, risk_score_awarded = %s, execution_time = %s
+            SET transaction_id = %s, rule_id = %s, rule_name = %s, triggered = %s, risk_score_awarded = %s, severity = %s, reason = %s, execution_time = %s
             WHERE execution_id = %s
         """
         triggered_val = 1 if entity.triggered else 0
         params = (
             entity.transaction_id,
             entity.rule_id,
+            entity.rule_name,
             triggered_val,
             entity.risk_score_awarded,
+            entity.severity,
+            entity.reason,
             entity.execution_time,
             entity.execution_id
         )
