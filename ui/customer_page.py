@@ -1,4 +1,5 @@
 import threading
+from tkinter import ttk
 from typing import Any, Dict, List
 import customtkinter as ctk
 from tkinter import messagebox
@@ -18,6 +19,22 @@ from ui.widgets.theme import (
 from services import CustomerService
 
 
+class PillBadge(ctk.CTkLabel):
+    """A small custom rounded pill badge with consistent sizing."""
+    def __init__(self, parent, text: str, bg_color: str, text_color: str = "#FFFFFF", **kwargs):
+        super().__init__(
+            parent,
+            text=text,
+            fg_color=bg_color,
+            text_color=text_color,
+            font=ctk.CTkFont(family=FONT_FAMILY, size=10, weight="bold"),
+            corner_radius=12,
+            width=100,
+            height=24,
+            **kwargs
+        )
+
+
 class CustomerPage(BasePage):
     """Customer KYC management page subclassing standardized BasePage layout."""
 
@@ -26,6 +43,30 @@ class CustomerPage(BasePage):
         self.service = CustomerService()
         self.selected_customer_id = None
         self.selected_customer_data = None
+
+        # Define custom treeview style matching Dashboard
+        style = ttk.Style()
+        style.configure("Customer.Treeview",
+            background=CARD_COLOR,
+            fieldbackground=CARD_COLOR,
+            foreground=TEXT_COLOR,
+            rowheight=38,
+            font=(FONT_FAMILY, 11),
+            borderwidth=0,
+            relief="flat",
+        )
+        style.configure("Customer.Treeview.Heading",
+            background="#0F172A",
+            foreground=SUBTEXT_COLOR,
+            font=(FONT_FAMILY, 12, "bold"),
+            padding=6,
+            borderwidth=0,
+            relief="flat",
+        )
+        style.map("Customer.Treeview",
+            background=[("selected", PRIMARY_COLOR)],
+            foreground=[("selected", TEXT_COLOR)],
+        )
 
         # ── 1. Header Action Button ──
         ctk.CTkButton(
@@ -46,45 +87,33 @@ class CustomerPage(BasePage):
         self._table = TableWidget(
             self.main_content,
             columns=["customer_id", "first_name", "last_name", "email", "phone", "status"],
-            headers=["ID", "First Name", "Last Name", "Email", "Phone", "Status"]
+            headers=["ID", "First Name", "Last Name", "Email", "Phone", "Status"],
+            style="Customer.Treeview",
+            column_alignments={"customer_id": "center", "first_name": "w", "last_name": "w", "email": "w", "phone": "w", "status": "center"}
         )
         self._table.pack(fill="both", expand=True)
         self._table.bind_select(self._on_select)
         self._table.bind_double_click(self._open_edit_dialog)
 
-        # ── 4. Right Panel (Details Scroll & Actions) ──
-        # Details Scroll Container
-        self._details_scroll = ctk.CTkScrollableFrame(
-            self.right_panel, fg_color="transparent",
-            scrollbar_fg_color=CARD_COLOR,
-            scrollbar_button_color="#334155"
-        )
-        self._details_scroll.pack(fill="both", expand=True, padx=SPACE_S, pady=SPACE_S)
+        def resize_cols(event):
+            w = event.width
+            usable_w = max(800, w - 25)
+            self._table._tree.column("customer_id", width=int(usable_w * 0.08), minwidth=40, stretch=True)
+            self._table._tree.column("first_name", width=int(usable_w * 0.18), minwidth=80, stretch=True)
+            self._table._tree.column("last_name", width=int(usable_w * 0.18), minwidth=80, stretch=True)
+            self._table._tree.column("email", width=int(usable_w * 0.30), minwidth=150, stretch=True)
+            self._table._tree.column("phone", width=int(usable_w * 0.16), minwidth=90, stretch=True)
+            self._table._tree.column("status", width=int(usable_w * 0.10), minwidth=70, stretch=True)
+
+        self._table.bind("<Configure>", resize_cols)
+
+        # ── 4. Right Panel (Details Frame & Actions) ──
+        # Details Container (standard frame instead of scrollable)
+        self._details_frame = ctk.CTkFrame(self.right_panel, fg_color="transparent")
+        self._details_frame.pack(fill="both", expand=True, padx=SPACE_S, pady=SPACE_S)
 
         # Empty State
         self._show_empty_state()
-
-        # Action buttons row (hidden by default, packed on select)
-        self._action_row = ctk.CTkFrame(self.right_panel, fg_color="transparent", height=60)
-        self._action_row.pack_propagate(False)
-
-        self._edit_btn = ctk.CTkButton(
-            self._action_row, text="✏  Edit Profile",
-            width=120, height=36, corner_radius=8,
-            fg_color=PRIMARY_COLOR, hover_color="#1D4ED8",
-            font=ctk.CTkFont(family=FONT_FAMILY, size=13, weight="bold"),
-            command=self._open_edit_dialog_btn
-        )
-        self._edit_btn.pack(side="left", padx=(SPACE_S, SPACE_XS), pady=12)
-
-        self._del_btn = ctk.CTkButton(
-            self._action_row, text="🗑  Remove",
-            width=100, height=36, corner_radius=8,
-            fg_color=DANGER_COLOR, hover_color="#DC2626",
-            font=ctk.CTkFont(family=FONT_FAMILY, size=13, weight="bold"),
-            command=self._delete_customer
-        )
-        self._del_btn.pack(side="left", padx=SPACE_XS, pady=12)
 
         # ── 5. Footer (Statistics) ──
         self._stats_lbl = ctk.CTkLabel(self.footer, text="",
@@ -95,10 +124,10 @@ class CustomerPage(BasePage):
         self._load_customers()
 
     def _show_empty_state(self) -> None:
-        for w in self._details_scroll.winfo_children():
+        for w in self._details_frame.winfo_children():
             w.destroy()
         
-        empty_container = ctk.CTkFrame(self._details_scroll, fg_color="transparent")
+        empty_container = ctk.CTkFrame(self._details_frame, fg_color="transparent")
         empty_container.pack(fill="both", expand=True, pady=120)
 
         icon_lbl = ctk.CTkLabel(
@@ -118,7 +147,7 @@ class CustomerPage(BasePage):
 
         sub_msg_lbl = ctk.CTkLabel(
             empty_container,
-            text="Select a profile from the ledger table\nto view full KYC & risk audits.",
+            text="Select a profile from the ledger table\nto view details.",
             font=ctk.CTkFont(family=FONT_FAMILY, size=12),
             text_color=SUBTEXT_COLOR, justify="center"
         )
@@ -186,95 +215,88 @@ class CustomerPage(BasePage):
 
     def _populate_profile(self, data: Dict) -> None:
         self.selected_customer_data = data
-        for w in self._details_scroll.winfo_children():
+        for w in self._details_frame.winfo_children():
             w.destroy()
 
-        # Avatar Container
-        av_frame = ctk.CTkFrame(self._details_scroll, fg_color="transparent")
-        av_frame.pack(fill="x", pady=(SPACE_S, SPACE_S))
+        # Center container for upper elements
+        center_container = ctk.CTkFrame(self._details_frame, fg_color="transparent")
+        center_container.pack(fill="x", pady=(SPACE_S, SPACE_S))
 
+        # 1. Avatar (48x48, corner_radius=24)
         av = ctk.CTkLabel(
-            av_frame,
+            center_container,
             text=f"{data['first_name'][0].upper()}{data['last_name'][0].upper()}",
-            font=ctk.CTkFont(family=FONT_FAMILY, size=24, weight="bold"),
-            text_color=TEXT_COLOR, width=64, height=64,
-            fg_color=PRIMARY_COLOR, corner_radius=32
+            font=ctk.CTkFont(family=FONT_FAMILY, size=18, weight="bold"),
+            text_color=TEXT_COLOR, width=48, height=48,
+            fg_color=PRIMARY_COLOR, corner_radius=24
         )
         av.pack(pady=(0, SPACE_XS))
 
+        # 2. Customer Name (Segoe UI, 20px Bold)
         name_lbl = ctk.CTkLabel(
-            av_frame,
+            center_container,
             text=f"{data['first_name']} {data['last_name']}",
-            font=ctk.CTkFont(family=FONT_FAMILY, size=18, weight="bold"),
+            font=ctk.CTkFont(family=FONT_FAMILY, size=20, weight="bold"),
             text_color=TEXT_COLOR
         )
-        name_lbl.pack()
+        name_lbl.pack(pady=(0, SPACE_XS))
 
-        # Badges row
-        badge_row = ctk.CTkFrame(av_frame, fg_color="transparent")
+        # 3. Badges Row (Status & Risk Badges side-by-side)
+        badge_row = ctk.CTkFrame(center_container, fg_color="transparent")
         badge_row.pack(pady=SPACE_XS)
         
-        StatusBadge(badge_row, data["status"]).pack(side="left", padx=4)
+        status_colors = {
+            "ACTIVE": "#10B981",
+            "BLOCKED": "#EF4444",
+            "SUSPENDED": "#F59E0B",
+            "INACTIVE": "#94A3B8"
+        }
+        status_val = (data["status"] or "").upper()
+        status_bg = status_colors.get(status_val, "#94A3B8")
+        PillBadge(badge_row, status_val, bg_color=status_bg).pack(side="left", padx=4)
         
-        tier = data["risk_tier"]
-        tier_color = DANGER_COLOR if tier in ("CRITICAL", "HIGH") else WARNING_COLOR if tier == "MEDIUM" else SUCCESS_COLOR
-        StatusBadge(badge_row, f"{tier} RISK", bg_color=tier_color).pack(side="left", padx=4)
+        tier = (data["risk_tier"] or "").upper()
+        if tier == "CRITICAL":
+            tier_bg = "#7F1D1D"
+        elif tier == "HIGH":
+            tier_bg = "#EF4444"
+        elif tier == "MEDIUM":
+            tier_bg = "#F59E0B"
+        else:
+            tier_bg = "#10B981"
+        PillBadge(badge_row, f"{tier} RISK", bg_color=tier_bg).pack(side="left", padx=4)
 
-        # Profile details cards
-        self._build_info_card("🔑 ACCOUNT DATA", [
-            ("Customer ID", f"#{data['customer_id']}"),
-            ("PAN Card", data.get("pan") or "—"),
-            ("Account No.", data.get("account_number") or "—"),
-            ("Customer Since", str(data.get("created_at") or "—")[:10]),
-        ])
-
-        self._build_info_card("📞 CONTACT DETAILS", [
-            ("Email", data.get("email") or "—"),
-            ("Phone", data.get("phone") or "—"),
-            ("Location", f"{data.get('city') or '—'}, {data.get('state') or '—'}")
-        ])
-
-        last_amt = format_inr(data["last_tx_amt"]) if data.get("last_tx_amt") else "—"
-        self._build_info_card("📊 TRANSACTION AUDIT", [
-            ("Risk Score", f"{data['risk_score']}/100"),
-            ("Total Events", f"{data['total_tx']} transactions"),
-            ("Last Event", f"{last_amt}"),
-            ("Last Active", str(data.get("last_tx_time") or "—")[:16])
-        ])
-
-        # Pack action buttons row
-        self._action_row.pack(fill="x", side="bottom")
-
-    def _build_info_card(self, title: str, fields: List[tuple]) -> None:
-        card = ctk.CTkFrame(self._details_scroll, fg_color="#0F172A", corner_radius=8, border_width=1, border_color="#1E293B")
-        card.pack(fill="x", pady=SPACE_XS)
-
-        # Title
-        ctk.CTkLabel(
-            card, text=title,
-            font=ctk.CTkFont(family=FONT_FAMILY, size=11, weight="bold"),
+        # 4. Customer ID Label (Segoe UI 12pt, format: Customer ID: #12345)
+        id_lbl = ctk.CTkLabel(
+            center_container,
+            text=f"Customer ID: #{data['customer_id']}",
+            font=ctk.CTkFont(family=FONT_FAMILY, size=12),
             text_color=SUBTEXT_COLOR
-        ).pack(anchor="w", padx=SPACE_S, pady=(SPACE_S, SPACE_XS))
+        )
+        id_lbl.pack(pady=(SPACE_XS, 0))
 
-        # Divider
-        ctk.CTkFrame(card, fg_color="#1E293B", height=1).pack(fill="x", padx=SPACE_S, pady=(0, SPACE_XS))
+        # 5. Buttons row anchored at the bottom
+        buttons_row = ctk.CTkFrame(self._details_frame, fg_color="transparent")
+        buttons_row.pack(fill="x", side="bottom", pady=SPACE_S)
+        buttons_row.columnconfigure((0, 1), weight=1)
 
-        # Fields
-        for lbl, val in fields:
-            row = ctk.CTkFrame(card, fg_color="transparent")
-            row.pack(fill="x", padx=SPACE_S, pady=4)
+        self._edit_btn = ctk.CTkButton(
+            buttons_row, text="✏  Edit Profile",
+            height=36, corner_radius=8,
+            fg_color=PRIMARY_COLOR, hover_color="#1D4ED8",
+            font=ctk.CTkFont(family=FONT_FAMILY, size=13, weight="bold"),
+            command=self._open_edit_dialog_btn
+        )
+        self._edit_btn.grid(row=0, column=0, padx=(0, SPACE_XS), sticky="ew")
 
-            ctk.CTkLabel(
-                row, text=lbl,
-                font=ctk.CTkFont(family=FONT_FAMILY, size=13),
-                text_color=SUBTEXT_COLOR, anchor="w", width=120
-            ).pack(side="left")
-
-            ctk.CTkLabel(
-                row, text=str(val),
-                font=ctk.CTkFont(family=FONT_FAMILY, size=13, weight="bold"),
-                text_color=TEXT_COLOR, anchor="w"
-            ).pack(side="left", fill="x", expand=True)
+        self._del_btn = ctk.CTkButton(
+            buttons_row, text="🗑  Remove",
+            height=36, corner_radius=8,
+            fg_color=DANGER_COLOR, hover_color="#DC2626",
+            font=ctk.CTkFont(family=FONT_FAMILY, size=13, weight="bold"),
+            command=self._delete_customer
+        )
+        self._del_btn.grid(row=0, column=1, padx=(SPACE_XS, 0), sticky="ew")
 
     # ── Dialogs ───────────────────────────────────────────────────────────
 
@@ -325,7 +347,6 @@ class CustomerPage(BasePage):
             try:
                 self.service.delete_customer(self.selected_customer_id)
                 self.selected_customer_id = None
-                self._action_row.pack_forget()
                 self._show_empty_state()
                 self._load_customers()
                 messagebox.showinfo("Deleted", "Customer removed successfully.")

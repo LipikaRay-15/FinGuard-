@@ -25,27 +25,18 @@ class DialogWidget(ctk.CTkToplevel):
         self.configure(fg_color=BG_COLOR)
         self.resizable(False, False)
 
-        # Center on parent or screen
+        # Always appear perfectly centered on screen supporting Windows scaling
         self.update_idletasks()
         try:
             scaling = self._get_window_scaling()
         except Exception:
             scaling = 1.0
 
-        try:
-            px = parent.winfo_rootx()
-            py = parent.winfo_rooty()
-            pw = parent.winfo_width()
-            ph = parent.winfo_height()
-            if pw <= 1 or ph <= 1:
-                raise ValueError
-        except Exception:
-            sw = self.winfo_screenwidth()
-            sh = self.winfo_screenheight()
-            px, py, pw, ph = 0, 0, sw, sh
+        screen_width = self.winfo_screenwidth()
+        screen_height = self.winfo_screenheight()
 
-        x = px + (pw - int(width * scaling)) // 2
-        y = py + (ph - int(height * scaling)) // 2
+        x = (screen_width - int(width * scaling)) // 2
+        y = (screen_height - int(height * scaling)) // 2
         self.geometry(f"{width}x{height}+{max(0, x)}+{max(0, y)}")
 
         self.transient(parent)
@@ -94,49 +85,34 @@ class CustomerFormDialog(DialogWidget):
 
     def _build_ui(self, title: str) -> None:
         # Title bar
-        header = ctk.CTkFrame(self, fg_color=CARD_COLOR, corner_radius=0, height=60)
+        header = ctk.CTkFrame(self, fg_color=CARD_COLOR, corner_radius=0, height=70)
         header.pack(fill="x")
         header.pack_propagate(False)
         ctk.CTkLabel(
             header, text=title,
-            font=ctk.CTkFont(family=FONT_FAMILY, size=14, weight="bold"),
+            font=ctk.CTkFont(family=FONT_FAMILY, size=24, weight="bold"),
             text_color=TEXT_COLOR
         ).pack(side="left", padx=20, pady=15)
 
         # Error label
         self._error_lbl = ctk.CTkLabel(
             self, text="",
-            font=ctk.CTkFont(family=FONT_FAMILY, size=10),
+            font=ctk.CTkFont(family=FONT_FAMILY, size=12),
             text_color=DANGER_COLOR,
             wraplength=440,
             justify="left"
         )
 
-        # Scrollable form
-        scroll = ctk.CTkScrollableFrame(
-            self, fg_color="transparent",
-            scrollbar_fg_color=BG_COLOR,
-            scrollbar_button_color="#334155"
-        )
-        scroll.pack(fill="both", expand=True, padx=20, pady=(12, 0))
-
-        for key, label, f_type, choices in self.FIELDS:
-            self._add_field(scroll, key, label, f_type, choices)
-
-        # Pincode auto-resolve
-        if "pincode" in self.inputs:
-            self.inputs["pincode"].bind("<KeyRelease>", self._on_pincode_changed)
-
-        # Buttons
+        # Buttons (packed first at the bottom to ensure visibility and prevent overflow)
         btn_row = ctk.CTkFrame(self, fg_color="transparent", height=56)
-        btn_row.pack(fill="x", padx=20, pady=12)
+        btn_row.pack(side="bottom", fill="x", padx=20, pady=12)
         btn_row.pack_propagate(False)
 
         ctk.CTkButton(
             btn_row, text="Cancel",
             fg_color="#334155", hover_color="#475569",
             text_color=TEXT_COLOR,
-            font=ctk.CTkFont(family=FONT_FAMILY, size=12),
+            font=ctk.CTkFont(family=FONT_FAMILY, size=13, weight="bold"),
             width=100, height=36, corner_radius=8,
             command=self.close
         ).pack(side="right", padx=(8, 0))
@@ -145,21 +121,37 @@ class CustomerFormDialog(DialogWidget):
             btn_row, text="💾  Save Customer",
             fg_color=PRIMARY_COLOR, hover_color="#1D4ED8",
             text_color=TEXT_COLOR,
-            font=ctk.CTkFont(family=FONT_FAMILY, size=12, weight="bold"),
+            font=ctk.CTkFont(family=FONT_FAMILY, size=13, weight="bold"),
             width=160, height=36, corner_radius=8,
             command=self._submit
         ).pack(side="right")
 
+        # Scrollable form
+        scroll = ctk.CTkScrollableFrame(
+            self, fg_color="transparent",
+            scrollbar_fg_color=BG_COLOR,
+            scrollbar_button_color="#334155"
+        )
+        scroll.pack(side="top", fill="both", expand=True, padx=20, pady=(12, 0))
+
+        for key, label, f_type, choices in self.FIELDS:
+            self._add_field(scroll, key, label, f_type, choices)
+
+        # Pincode auto-resolve
+        if "pincode" in self.inputs:
+            self.inputs["pincode"].bind("<KeyRelease>", self._on_pincode_changed)
+
     def _add_field(self, parent, key: str, label: str, f_type: str, choices) -> None:
         wrap = ctk.CTkFrame(parent, fg_color="transparent")
-        wrap.pack(fill="x", pady=5)
+        # Consistent spacing 16px between controls
+        wrap.pack(fill="x", pady=(0, 16))
 
         ctk.CTkLabel(
             wrap, text=label,
-            font=ctk.CTkFont(family=FONT_FAMILY, size=10),
+            font=ctk.CTkFont(family=FONT_FAMILY, size=12),
             text_color=SUBTEXT_COLOR,
             anchor="w"
-        ).pack(anchor="w", pady=(0, 2))
+        ).pack(anchor="w", pady=(0, 4))
 
         default = self.customer_data.get(key, "") or ""
 
@@ -167,7 +159,7 @@ class CustomerFormDialog(DialogWidget):
             ent = ctk.CTkEntry(
                 wrap, fg_color=CARD_COLOR, border_color="#334155",
                 text_color=TEXT_COLOR, placeholder_text_color=SUBTEXT_COLOR,
-                font=ctk.CTkFont(family=FONT_FAMILY, size=11),
+                font=ctk.CTkFont(family=FONT_FAMILY, size=12),
                 height=34, corner_radius=6
             )
             ent.insert(0, str(default))
@@ -178,7 +170,7 @@ class CustomerFormDialog(DialogWidget):
             ent = ctk.CTkEntry(
                 wrap, fg_color="#0F172A", border_color="#1E293B",
                 text_color=SUBTEXT_COLOR, state="disabled",
-                font=ctk.CTkFont(family=FONT_FAMILY, size=11),
+                font=ctk.CTkFont(family=FONT_FAMILY, size=12),
                 height=34, corner_radius=6
             )
             if default:
@@ -194,7 +186,7 @@ class CustomerFormDialog(DialogWidget):
                 fg_color=CARD_COLOR, border_color="#334155",
                 text_color=TEXT_COLOR, button_color="#334155",
                 dropdown_fg_color=CARD_COLOR, dropdown_text_color=TEXT_COLOR,
-                font=ctk.CTkFont(family=FONT_FAMILY, size=11),
+                font=ctk.CTkFont(family=FONT_FAMILY, size=12),
                 height=34, corner_radius=6, state="readonly"
             )
             if str(default) in (choices or []):

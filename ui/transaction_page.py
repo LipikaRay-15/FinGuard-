@@ -1,5 +1,7 @@
 import threading
 from decimal import Decimal
+import tkinter as tk
+from tkinter import ttk
 from typing import Any, Dict, List
 import customtkinter as ctk
 from tkinter import messagebox
@@ -13,6 +15,56 @@ from ui.widgets.theme import (
     SPACE_XS, SPACE_S, SPACE_M, SPACE_L, SPACE_XL, format_inr, BasePage
 )
 from services import TransactionService
+
+
+class ToolTip:
+    """A professional dark-themed tooltip with fade-in animation and auto-hide."""
+    def __init__(self, widget, text: str) -> None:
+        self.widget = widget
+        self.text = text
+        self.tip_window = None
+        self.widget.bind("<Enter>", self.show_tip)
+        self.widget.bind("<Leave>", self.hide_tip)
+
+    def show_tip(self, event=None) -> None:
+        if self.tip_window or not self.text:
+            return
+        self.widget.configure(text_color="#2563EB") # Hover color
+        
+        # Calculate coordinate to align centered under the icon
+        x = self.widget.winfo_rootx() + self.widget.winfo_width() // 2 - 125
+        y = self.widget.winfo_rooty() + self.widget.winfo_height() + 8
+        
+        self.tip_window = tw = tk.Toplevel(self.widget)
+        tw.wm_overrideredirect(True)
+        tw.wm_geometry(f"+{x}+{y}")
+        tw.configure(bg="#0F172A")
+        tw.attributes("-alpha", 0.0)
+        
+        # Rounded borders look via frame styling
+        frame = tk.Frame(tw, bg="#1E293B", padx=10, pady=6, highlightthickness=1, highlightbackground="#334155")
+        frame.pack()
+        
+        lbl = tk.Label(frame, text=self.text, justify="left",
+                       font=("Segoe UI", 11), bg="#1E293B", fg="#F8FAFC",
+                       wraplength=230)
+        lbl.pack()
+        
+        def fade():
+            for i in range(1, 11):
+                if tw.winfo_exists():
+                    tw.attributes("-alpha", (i / 10.0) * 0.98)
+                    tw.update()
+                    import time
+                    time.sleep(0.01)
+        tw.after(10, fade)
+
+    def hide_tip(self, event=None) -> None:
+        self.widget.configure(text_color="#94A3B8") # Normal color
+        tw = self.tip_window
+        self.tip_window = None
+        if tw:
+            tw.destroy()
 
 
 class TransactionPage(BasePage):
@@ -44,13 +96,61 @@ class TransactionPage(BasePage):
         self._status_cmb.set("All Statuses")
         self._status_cmb.pack(side="left", padx=(SPACE_XS, 0))
 
+        # Define custom treeview style matching Dashboard
+        style = ttk.Style()
+        style.configure("Transaction.Treeview",
+            background=CARD_COLOR,
+            fieldbackground=CARD_COLOR,
+            foreground=TEXT_COLOR,
+            rowheight=30,
+            font=(FONT_FAMILY, 11),
+            borderwidth=0,
+            relief="flat",
+        )
+        style.configure("Transaction.Treeview.Heading",
+            background="#0F172A",
+            foreground=SUBTEXT_COLOR,
+            font=(FONT_FAMILY, 12, "bold"),
+            padding=6,
+            borderwidth=0,
+            relief="flat",
+        )
+        style.map("Transaction.Treeview",
+            background=[("selected", PRIMARY_COLOR), ("active", "#1E3A5F")],
+            foreground=[("selected", TEXT_COLOR)],
+        )
+
         # ── 2. Main Content (Ledger Table) ──
         self._table = TableWidget(
             self.main_content,
             columns=["tx_id", "cust_id", "merchant", "amount", "type", "status", "time"],
-            headers=["TX ID", "Cust ID", "Merchant", "Amount", "Type", "Status", "Timestamp"]
+            headers=["TX ID", "Cust ID", "Merchant", "Amount", "Type", "Status", "Timestamp"],
+            style="Transaction.Treeview",
+            column_alignments={
+                "tx_id": "center",
+                "cust_id": "center",
+                "merchant": "w",
+                "amount": "center",
+                "type": "center",
+                "status": "center",
+                "time": "center"
+            }
         )
         self._table.pack(fill="both", expand=True)
+
+        def resize_cols(event):
+            w = event.width
+            usable_w = max(950, w - 25)
+            # Set stretch=False so columns can exceed widget width to activate horizontal scrollbar
+            self._table._tree.column("tx_id", width=int(usable_w * 0.08), minwidth=50, stretch=False)
+            self._table._tree.column("cust_id", width=int(usable_w * 0.10), minwidth=60, stretch=False)
+            self._table._tree.column("merchant", width=int(usable_w * 0.28), minwidth=150, stretch=False)
+            self._table._tree.column("amount", width=int(usable_w * 0.15), minwidth=90, stretch=False)
+            self._table._tree.column("type", width=int(usable_w * 0.15), minwidth=90, stretch=False)
+            self._table._tree.column("status", width=int(usable_w * 0.12), minwidth=75, stretch=False)
+            self._table._tree.column("time", width=int(usable_w * 0.22), minwidth=110, stretch=False)
+
+        self._table.bind("<Configure>", resize_cols)
 
         # ── 3. Right Panel (Log Form) ──
         self._build_form(self.right_panel)
@@ -87,10 +187,22 @@ class TransactionPage(BasePage):
                      text_color=TEXT_COLOR).pack(anchor="w", padx=SPACE_S, pady=(SPACE_S, SPACE_XS))
         ctk.CTkFrame(parent, fg_color="#2D3748", height=1).pack(fill="x", padx=SPACE_S, pady=(0, SPACE_S))
 
+        # Pack submit button first at the bottom of parent to ensure it remains visible
+        self._submit_btn = ctk.CTkButton(
+            parent, text="🚀  Submit Transaction",
+            width=200, height=44, corner_radius=8,
+            fg_color=PRIMARY_COLOR, hover_color="#1D4ED8",
+            text_color=TEXT_COLOR,
+            font=ctk.CTkFont(family=FONT_FAMILY, size=13, weight="bold"),
+            command=self._submit_transaction
+        )
+        self._submit_btn.pack(side="bottom", pady=SPACE_S, padx=SPACE_S, fill="x")
+
+        # Scrollable form occupies the remaining space above the submit button
         scroll = ctk.CTkScrollableFrame(parent, fg_color="transparent",
                                          scrollbar_fg_color=CARD_COLOR,
                                          scrollbar_button_color="#334155")
-        scroll.pack(fill="both", expand=True, padx=SPACE_XS)
+        scroll.pack(side="top", fill="both", expand=True, padx=SPACE_XS)
 
         self._inputs: Dict[str, Any] = {}
         # Form fields specified by requirements
@@ -106,37 +218,58 @@ class TransactionPage(BasePage):
 
         for key, label, ftype, choices in fields:
             wrap = ctk.CTkFrame(scroll, fg_color="transparent")
-            wrap.pack(fill="x", pady=6, padx=SPACE_XS)
-            ctk.CTkLabel(wrap, text=label,
-                         font=ctk.CTkFont(family=FONT_FAMILY, size=13, weight="bold"),
-                         text_color=SUBTEXT_COLOR, anchor="w").pack(anchor="w", pady=(0, 4))
+            # Consistent spacing 16px (pady=(0, 16))
+            wrap.pack(fill="x", pady=(0, 16), padx=SPACE_XS)
+
+            if key == "device":
+                # Create a horizontal row for label and ⓘ icon
+                label_row = ctk.CTkFrame(wrap, fg_color="transparent")
+                label_row.pack(anchor="w", pady=(0, 4))
+                
+                ctk.CTkLabel(label_row, text=label,
+                             font=ctk.CTkFont(family=FONT_FAMILY, size=12),
+                             text_color=SUBTEXT_COLOR, anchor="w").pack(side="left")
+                             
+                info_icon = ctk.CTkLabel(
+                    label_row,
+                    text="ⓘ",
+                    font=ctk.CTkFont(family=FONT_FAMILY, size=14),
+                    text_color="#94A3B8",
+                    cursor="hand2"
+                )
+                info_icon.pack(side="left", padx=(6, 0))
+                
+                # Tooltip hover and click popup
+                ToolTip(info_icon, "Device Fingerprint helps identify trusted and new devices during fraud detection.")
+                
+                def show_popup(event):
+                    messagebox.showinfo(
+                        "Device Fingerprint Info",
+                        "Device fingerprints help detect new devices and unusual customer behavior. They are used internally by the fraud engine and are not displayed in transaction tables."
+                    )
+                info_icon.bind("<Button-1>", show_popup)
+            else:
+                ctk.CTkLabel(wrap, text=label,
+                             font=ctk.CTkFont(family=FONT_FAMILY, size=12),
+                             text_color=SUBTEXT_COLOR, anchor="w").pack(anchor="w", pady=(0, 4))
 
             if ftype == "entry":
                 w = ctk.CTkEntry(wrap, fg_color=BG_COLOR, border_color="#334155",
                                   text_color=TEXT_COLOR,
-                                  font=ctk.CTkFont(family=FONT_FAMILY, size=13),
-                                  height=38, corner_radius=8)
+                                  font=ctk.CTkFont(family=FONT_FAMILY, size=12),
+                                  height=34, corner_radius=8)
                 w.pack(fill="x")
             else:
                 w = ctk.CTkComboBox(wrap, values=choices,
                                      fg_color=BG_COLOR, border_color="#334155",
                                      text_color=TEXT_COLOR, button_color="#334155",
                                      dropdown_fg_color=CARD_COLOR, dropdown_text_color=TEXT_COLOR,
-                                     font=ctk.CTkFont(family=FONT_FAMILY, size=13),
-                                     height=38, corner_radius=8, state="readonly")
+                                     font=ctk.CTkFont(family=FONT_FAMILY, size=12),
+                                     height=34, corner_radius=8, state="readonly")
                 w.set(choices[0])
                 w.pack(fill="x")
-            self._inputs[key] = w
 
-        self._submit_btn = ctk.CTkButton(
-            parent, text="🚀  Submit Transaction",
-            width=200, height=44, corner_radius=8,
-            fg_color=PRIMARY_COLOR, hover_color="#1D4ED8",
-            text_color=TEXT_COLOR,
-            font=ctk.CTkFont(family=FONT_FAMILY, size=14, weight="bold"),
-            command=self._submit_transaction
-        )
-        self._submit_btn.pack(pady=SPACE_S, padx=SPACE_S, fill="x")
+            self._inputs[key] = w
 
     # ── Data Loading ──────────────────────────────────────────────────────
 
@@ -166,7 +299,7 @@ class TransactionPage(BasePage):
 
     def _populate_table(self, rows: List[Dict]) -> None:
         for r in rows:
-            amt_display = format_inr(r['amount']) if r['currency'] == 'INR' or r['currency'] == 'USD' else f"{r['amount']} {r['currency']}"
+            amt_display = format_inr(r['amount'])
             self._table.insert_row([
                 r["transaction_id"], r["customer_id"],
                 r.get("merchant_name") or "—",
