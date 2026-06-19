@@ -1,22 +1,21 @@
-import tkinter as tk
-from tkinter import ttk
-from tkinter import messagebox
+"""
+FinGuard UI – Analytics Page
+Threat intelligence: KPI cards, rules/cities tables, Matplotlib charts.
+"""
 import threading
-from typing import Dict, Any, List
+from typing import Any, Dict, List
+import customtkinter as ctk
+from tkinter import messagebox
 
-# Reusable widgets
-from ui.widgets.cards import CardWidget
+from ui.widgets.cards  import CardWidget
 from ui.widgets.tables import TableWidget
 from ui.widgets.theme import (
     BG_COLOR, CARD_COLOR, TEXT_COLOR, SUBTEXT_COLOR,
     PRIMARY_COLOR, SUCCESS_COLOR, WARNING_COLOR, DANGER_COLOR,
-    FONT_HEADER, FONT_SUBHEADER, FONT_BODY, FONT_CAPTION
+    FONT_FAMILY, format_inr
 )
-
-# Backend imports
 from services import AnalyticsService
 
-# Optional Matplotlib imports
 try:
     import matplotlib
     matplotlib.use("TkAgg")
@@ -26,253 +25,189 @@ try:
 except ImportError:
     HAS_MATPLOTLIB = False
 
-class AnalyticsPage(ttk.Frame):
-    """
-    Analytics and system threat intelligence page.
-    Displays metrics cards, maps hourly trends, rules hits,
-    and alert severity splits. Uses background threads to query database.
-    """
+
+class AnalyticsPage(ctk.CTkFrame):
+    """System Analytics & Threat Intelligence page."""
+
     def __init__(self, parent) -> None:
-        super().__init__(parent, style="TFrame")
+        super().__init__(parent, fg_color=BG_COLOR, corner_radius=0)
         self.service = AnalyticsService()
 
-        # Header Frame
-        self.header_frame = tk.Frame(self, bg=BG_COLOR)
-        self.header_frame.pack(fill="x", pady=(10, 20))
+        # ── Header ────────────────────────────────────────────────────────
+        hdr = ctk.CTkFrame(self, fg_color="transparent", height=52)
+        hdr.pack(fill="x", padx=24, pady=(20, 0))
+        hdr.pack_propagate(False)
+        ctk.CTkLabel(hdr, text="Threat Intelligence Analytics",
+                     font=ctk.CTkFont(family=FONT_FAMILY, size=20, weight="bold"),
+                     text_color=TEXT_COLOR).pack(side="left")
+        ctk.CTkButton(hdr, text="⟳  Refresh", width=100, height=32,
+                      corner_radius=8, fg_color="#1E293B", hover_color="#334155",
+                      text_color=TEXT_COLOR, font=ctk.CTkFont(family=FONT_FAMILY, size=11),
+                      command=self.load_analytics).pack(side="right")
 
-        self.title_lbl = ttk.Label(self.header_frame, text="System Analytics & Threat Intel", style="HeaderTitle.TLabel")
-        self.title_lbl.pack(side="left")
-
-        self.refresh_btn = ttk.Button(self.header_frame, text="🔄 Refresh", command=self.load_analytics)
-        self.refresh_btn.pack(side="right")
-
-        # Scrollable container
-        self.canvas = tk.Canvas(self, bg=BG_COLOR, highlightthickness=0, bd=0)
-        self.scrollbar = ttk.Scrollbar(self, orient="vertical", command=self.canvas.yview)
-        
-        self.scroll_frame = tk.Frame(self.canvas, bg=BG_COLOR)
-        self.scroll_frame.bind(
-            "<Configure>",
-            lambda e: self.canvas.configure(scrollregion=self.canvas.bbox("all"))
+        # ── Scrollable body ────────────────────────────────────────────────
+        self._scroll = ctk.CTkScrollableFrame(
+            self, fg_color="transparent",
+            scrollbar_fg_color=BG_COLOR, scrollbar_button_color="#334155"
         )
-        self.canvas_win = self.canvas.create_window((0, 0), window=self.scroll_frame, anchor="nw")
-        self.canvas.configure(yscrollcommand=self.scrollbar.set)
-        self.canvas.bind("<Configure>", lambda e: self.canvas.itemconfig(self.canvas_win, width=e.width))
-        
-        self.canvas.pack(side="left", fill="both", expand=True)
-        self.scrollbar.pack(side="right", fill="y")
+        self._scroll.pack(fill="both", expand=True, padx=24, pady=12)
 
-        # Loading Label
-        self.loading_lbl = tk.Label(self.scroll_frame, text="Aggregating threat metrics across tables...", bg=BG_COLOR, fg=SUBTEXT_COLOR, font=FONT_SUBHEADER)
-        self.loading_lbl.pack(pady=40)
+        self._loading = ctk.CTkLabel(
+            self._scroll, text="⏳  Aggregating threat metrics…",
+            font=ctk.CTkFont(family=FONT_FAMILY, size=13), text_color=SUBTEXT_COLOR)
+        self._loading.pack(pady=60)
 
-        # Content frame (Hidden while loading)
-        self.content_frame = tk.Frame(self.scroll_frame, bg=BG_COLOR)
+        self._content = ctk.CTkFrame(self._scroll, fg_color="transparent")
         self._build_layout()
-
-        # Load initial values
         self.load_analytics()
 
     def _build_layout(self) -> None:
-        # 1. Cards Grid
-        self.cards_frame = tk.Frame(self.content_frame, bg=BG_COLOR)
-        self.cards_frame.pack(fill="x", pady=(0, 20))
-        self.cards_frame.columnconfigure((0, 1, 2, 3), weight=1, uniform="group_analytics")
+        # ── Row 1: 4 KPI Cards ──────────────────────────────────────────────
+        cards_row = ctk.CTkFrame(self._content, fg_color="transparent")
+        cards_row.pack(fill="x", pady=(0, 16))
+        cards_row.columnconfigure((0, 1, 2, 3), weight=1)
 
-        self.card_fraud_pct = CardWidget(self.cards_frame, "FRAUD DECLINE RATE", "0.00%", "Ratio of declines", trend_color=DANGER_COLOR)
-        self.card_fraud_pct.grid(row=0, column=0, padx=6, sticky="nsew")
+        self._c_fraud_rate = CardWidget(cards_row, "Fraud Decline Rate",    "0.00%", "Decline ratio", DANGER_COLOR)
+        self._c_fp_ratio   = CardWidget(cards_row, "False Positive Rate",   "0.00%", "Override ratio", SUCCESS_COLOR)
+        self._c_avg_tx     = CardWidget(cards_row, "Average Transaction Value",  "₹0", "Volume per ticket", PRIMARY_COLOR)
+        self._c_res_time   = CardWidget(cards_row, "Avg Resolution Time",   "—", "Case close time", WARNING_COLOR)
 
-        self.card_fp_ratio = CardWidget(self.cards_frame, "FALSE POSITIVE RATE", "0.00%", "Alert overrides ratio", trend_color=SUCCESS_COLOR)
-        self.card_fp_ratio.grid(row=0, column=1, padx=6, sticky="nsew")
+        for i, c in enumerate([self._c_fraud_rate, self._c_fp_ratio, self._c_avg_tx, self._c_res_time]):
+            c.grid(row=0, column=i, sticky="nsew", padx=6)
 
-        self.card_avg_val = CardWidget(self.cards_frame, "AVG TRANSACTION SIZE", "$0.00", "Volume per ticket")
-        self.card_avg_val.grid(row=0, column=2, padx=6, sticky="nsew")
+        # ── Row 2: Tables left, Charts right ─────────────────────────────
+        split = ctk.CTkFrame(self._content, fg_color="transparent")
+        split.pack(fill="both", expand=True)
+        split.columnconfigure(0, weight=2)
+        split.columnconfigure(1, weight=3)
 
-        self.card_res_time = CardWidget(self.cards_frame, "AVG RESOLUTION TIME", "0.0s", "Alert to close cycle time")
-        self.card_res_time.grid(row=0, column=3, padx=6, sticky="nsew")
+        # Left: tables
+        left = ctk.CTkFrame(split, fg_color="transparent")
+        left.grid(row=0, column=0, sticky="nsew", padx=(0, 8))
 
-        # 2. Main split area: Left (tables), Right (charts)
-        self.split_frame = tk.Frame(self.content_frame, bg=BG_COLOR)
-        self.split_frame.pack(fill="both", expand=True)
-        self.split_frame.columnconfigure(0, weight=3) # Left lists
-        self.split_frame.columnconfigure(1, weight=3) # Right charts
+        # Rules table
+        rules_panel = ctk.CTkFrame(left, fg_color=CARD_COLOR, corner_radius=12)
+        rules_panel.pack(fill="both", expand=True, pady=(0, 12))
+        ctk.CTkLabel(rules_panel, text="🔴  Most Triggered Rules",
+                     font=ctk.CTkFont(family=FONT_FAMILY, size=13, weight="bold"),
+                     text_color=TEXT_COLOR).pack(anchor="w", padx=16, pady=(14, 4))
+        self._rules_table = TableWidget(rules_panel,
+                                         columns=["rule","count"],
+                                         headers=["Rule Name","Trigger Count"])
+        self._rules_table.pack(fill="both", expand=True, padx=8, pady=(0, 12))
 
-        # Left Column: Lists Frame
-        self.left_frame = tk.Frame(self.split_frame, bg=BG_COLOR)
-        self.left_frame.grid(row=0, column=0, sticky="nsew", padx=(0, 10))
+        # Cities table
+        cities_panel = ctk.CTkFrame(left, fg_color=CARD_COLOR, corner_radius=12)
+        cities_panel.pack(fill="both", expand=True)
+        ctk.CTkLabel(cities_panel, text="🌍  Risky Geographic Locations",
+                     font=ctk.CTkFont(family=FONT_FAMILY, size=13, weight="bold"),
+                     text_color=TEXT_COLOR).pack(anchor="w", padx=16, pady=(14, 4))
+        self._cities_table = TableWidget(cities_panel,
+                                          columns=["city","total","fraud"],
+                                          headers=["City","Total Transactions","Decline Volume"])
+        self._cities_table.pack(fill="both", expand=True, padx=8, pady=(0, 12))
 
-        # Rules Hits List
-        rules_container = tk.Frame(self.left_frame, bg=CARD_COLOR, padx=14, pady=14)
-        rules_container.pack(fill="both", expand=True, pady=(0, 15))
-        tk.Label(rules_container, text="Most Triggered Rules", bg=CARD_COLOR, fg=TEXT_COLOR, font=FONT_HEADER).pack(anchor="w", pady=(0, 10))
-        
-        self.rules_table = TableWidget(
-            rules_container,
-            columns=["rule_name", "count"],
-            headers=["Rule Name", "Trigger Count"]
-        )
-        self.rules_table.pack(fill="both", expand=True)
+        # Right: charts
+        self._charts_frame = ctk.CTkFrame(split, fg_color="transparent")
+        self._charts_frame.grid(row=0, column=1, sticky="nsew", padx=(8, 0))
 
-        # Risky Cities List
-        cities_container = tk.Frame(self.left_frame, bg=CARD_COLOR, padx=14, pady=14)
-        cities_container.pack(fill="both", expand=True)
-        tk.Label(cities_container, text="Risky Geographic Locations", bg=CARD_COLOR, fg=TEXT_COLOR, font=FONT_HEADER).pack(anchor="w", pady=(0, 10))
-
-        self.cities_table = TableWidget(
-            cities_container,
-            columns=["city", "total", "fraud"],
-            headers=["City", "Total Transactions", "Decline Volume"]
-        )
-        self.cities_table.pack(fill="both", expand=True)
-
-        # Right Column: Charts Frame
-        self.charts_frame = tk.Frame(self.split_frame, bg=BG_COLOR)
-        self.charts_frame.grid(row=0, column=1, sticky="nsew", padx=(10, 0))
+    # ── Data ──────────────────────────────────────────────────────────────
 
     def load_analytics(self) -> None:
-        self.loading_lbl.pack(pady=40)
-        self.content_frame.pack_forget()
-        
-        threading.Thread(target=self._query_worker, daemon=True).start()
+        self._loading.pack(pady=60)
+        self._content.pack_forget()
+        threading.Thread(target=self._worker, daemon=True).start()
 
-    def _query_worker(self) -> None:
+    def _worker(self) -> None:
         try:
             data = self.service.get_system_analytics()
             self.after(0, self._update_ui, data)
         except Exception as e:
             self.after(0, self._show_error, str(e))
 
-    def _show_error(self, err_msg: str) -> None:
-        self.loading_lbl.configure(text=f"Failed to load analytics metrics: {err_msg}", fg=DANGER_COLOR)
+    def _update_ui(self, data: Dict) -> None:
+        self._loading.pack_forget()
+        self._content.pack(fill="both", expand=True)
 
-    def _update_ui(self, data: Dict[str, Any]) -> None:
-        self.loading_lbl.pack_forget()
-        self.content_frame.pack(fill="both", expand=True)
+        self._c_fraud_rate.update_value(f"{data['fraud_percentage']:.2f}%")
+        self._c_fp_ratio.update_value(f"{data['false_positive_ratio']:.2f}%")
+        self._c_avg_tx.update_value(format_inr(data['average_transaction_amount']))
 
-        # Update Cards
-        self.card_fraud_pct.update_value(f"{data['fraud_percentage']:.2f}%")
-        self.card_fp_ratio.update_value(f"{data['false_positive_ratio']:.2f}%")
-        self.card_avg_val.update_value(f"${data['average_transaction_amount']:,.2f}")
-        
-        res_time = data["case_resolution_time"]
-        if res_time >= 3600:
-            res_str = f"{res_time/3600:.1f} hrs"
-        elif res_time >= 60:
-            res_str = f"{res_time/60:.1f} mins"
-        else:
-            res_str = f"{res_time:.1f} secs"
-        self.card_res_time.update_value(res_str)
+        rt = data["case_resolution_time"]
+        res_str = (f"{rt/3600:.1f} hrs" if rt >= 3600 else
+                   f"{rt/60:.1f} mins"  if rt >= 60 else
+                   f"{rt:.1f} secs")
+        self._c_res_time.update_value(res_str)
 
-        # Update Rules hit Table
-        self.rules_table.clear()
+        self._rules_table.clear()
         for r in data["most_triggered_rules"]:
-            self.rules_table.insert_row([r["rule_name"], r["trigger_count"]])
+            self._rules_table.insert_row([r["rule_name"], r["trigger_count"]])
 
-        # Update Cities Table
-        self.cities_table.clear()
+        self._cities_table.clear()
         for c in data["top_risky_cities"]:
-            self.cities_table.insert_row([c["city"], c["total_count"], c["fraud_count"]])
+            self._cities_table.insert_row([c["city"], c["total_count"], c["fraud_count"]])
 
-        # Render Charts
         self._render_charts(data)
 
-    def _render_charts(self, data: Dict[str, Any]) -> None:
-        # Clear old chart frames
-        for child in self.charts_frame.winfo_children():
-            child.destroy()
+    def _render_charts(self, data: Dict) -> None:
+        for w in self._charts_frame.winfo_children():
+            w.destroy()
 
         if HAS_MATPLOTLIB:
-            # Layout hourly trends and severity charts using Matplotlib
-            fig = Figure(figsize=(5, 5), facecolor=BG_COLOR)
-            
-            # Subplot 1: Hourly Trends
+            fig = Figure(figsize=(6, 6), facecolor=BG_COLOR, dpi=92)
+
+            # ── Subplot 1: Hourly line chart ─────────────────────────────
             ax1 = fig.add_subplot(211)
             ax1.set_facecolor(CARD_COLOR)
-            
-            hours = [h["hour"] for h in data["hourly_trends"]]
+            hours  = [h["hour"] for h in data["hourly_trends"]]
             counts = [h["transaction_count"] for h in data["hourly_trends"]]
-            
-            ax1.plot(hours, counts, color=PRIMARY_COLOR, marker="o", linewidth=2, markersize=4)
-            ax1.fill_between(hours, counts, color=PRIMARY_COLOR, alpha=0.15)
+            ax1.plot(hours, counts, color=PRIMARY_COLOR, linewidth=2,
+                     marker="o", markersize=3)
+            ax1.fill_between(hours, counts, color=PRIMARY_COLOR, alpha=0.12)
             ax1.tick_params(colors=TEXT_COLOR, labelsize=8)
-            ax1.spines['top'].set_visible(False)
-            ax1.spines['right'].set_visible(False)
-            ax1.spines['left'].set_color(SUBTEXT_COLOR)
-            ax1.spines['bottom'].set_color(SUBTEXT_COLOR)
-            ax1.set_title("Hourly Scan Volume (24h)", color=TEXT_COLOR, fontsize=10, weight="bold")
+            ax1.spines["top"].set_visible(False)
+            ax1.spines["right"].set_visible(False)
+            ax1.spines["left"].set_color("#334155")
+            ax1.spines["bottom"].set_color("#334155")
+            ax1.set_title("Hourly Scan Volume (24h)", color=TEXT_COLOR,
+                          fontsize=10, weight="bold")
             ax1.set_xlabel("Hour of Day", color=SUBTEXT_COLOR, fontsize=8)
-            ax1.set_ylabel("Tx Count", color=SUBTEXT_COLOR, fontsize=8)
+            ax1.set_ylabel("TX Count", color=SUBTEXT_COLOR, fontsize=8)
 
-            # Subplot 2: Alert Severity pie chart
+            # ── Subplot 2: Alert severity donut ──────────────────────────
             ax2 = fig.add_subplot(212)
             ax2.set_facecolor(CARD_COLOR)
-            
-            severity_dist = data["alert_distribution"]["severity_distribution"]
-            labels = list(severity_dist.keys())
-            sizes = list(severity_dist.values())
-            
+            sev_dist = data["alert_distribution"].get("severity_distribution", {})
+            labels = list(sev_dist.keys())
+            sizes  = list(sev_dist.values())
             if not sizes:
-                labels = ["No Alerts"]
-                sizes = [1]
+                labels, sizes = ["No Alerts"], [1]
                 colors = [CARD_COLOR]
             else:
-                color_map = {
-                    "CRITICAL": DANGER_COLOR,
-                    "HIGH": WARNING_COLOR,
-                    "MEDIUM": PRIMARY_COLOR,
-                    "LOW": SUCCESS_COLOR
-                }
-                colors = [color_map.get(lbl, SUBTEXT_COLOR) for lbl in labels]
-            
-            wedges, texts, autotexts = ax2.pie(
-                sizes,
-                labels=labels,
-                autopct='%1.1f%%',
-                colors=colors,
-                textprops=dict(color=TEXT_COLOR, size=8),
-                wedgeprops=dict(edgecolor=BG_COLOR, width=0.6) # donut style
-            )
-            ax2.set_title("Alert Severities Split", color=TEXT_COLOR, fontsize=10, weight="bold")
+                color_map = {"CRITICAL": DANGER_COLOR, "HIGH": "#F97316",
+                             "MEDIUM": WARNING_COLOR, "LOW": SUCCESS_COLOR}
+                colors = [color_map.get(l, SUBTEXT_COLOR) for l in labels]
 
-            fig.tight_layout()
-            canvas = FigureCanvasTkAgg(fig, master=self.charts_frame)
+            wedges, texts, autos = ax2.pie(
+                sizes, labels=labels, autopct="%1.1f%%",
+                colors=colors, startangle=90,
+                textprops=dict(color=TEXT_COLOR, size=8),
+                wedgeprops=dict(edgecolor=BG_COLOR, width=0.55)
+            )
+            ax2.set_title("Alert Severity Distribution", color=TEXT_COLOR,
+                          fontsize=10, weight="bold")
+
+            fig.tight_layout(pad=1.6)
+            canvas = FigureCanvasTkAgg(fig, master=self._charts_frame)
             canvas.draw()
+            canvas.get_tk_widget().configure(bg=BG_COLOR)
             canvas.get_tk_widget().pack(fill="both", expand=True)
         else:
-            # Fallback canvas charts
-            fallback_container = tk.Frame(self.charts_frame, bg=CARD_COLOR, padx=14, pady=14)
-            fallback_container.pack(fill="both", expand=True)
-            
-            tk.Label(fallback_container, text="Hourly Scan Volume (Canvas Fallback)", bg=CARD_COLOR, fg=TEXT_COLOR, font=FONT_SUBHEADER).pack(anchor="w", pady=(0, 5))
-            chart_canvas = tk.Canvas(fallback_container, bg=BG_COLOR, height=180, highlightthickness=0, bd=0)
-            chart_canvas.pack(fill="x", expand=True, pady=(0, 15))
+            ctk.CTkLabel(self._charts_frame,
+                         text="Matplotlib not available.\nInstall matplotlib to see charts.",
+                         font=ctk.CTkFont(family=FONT_FAMILY, size=12),
+                         text_color=SUBTEXT_COLOR, justify="center").pack(pady=40)
 
-            trends = data["hourly_trends"]
-            max_val = max([h["transaction_count"] for h in trends]) if trends else 1
-            if max_val == 0:
-                max_val = 1
-            
-            # Draw simple bar chart of hour points
-            width = 350
-            height = 140
-            dx = width / 24
-            for h in trends:
-                x = 10 + h["hour"] * dx
-                val_h = (h["transaction_count"] / max_val) * height
-                chart_canvas.create_rectangle(x, height - val_h + 10, x + dx - 2, height + 10, fill=PRIMARY_COLOR, outline="")
-                if h["hour"] % 4 == 0:
-                    chart_canvas.create_text(x + dx/2, height + 20, text=f"{h['hour']}h", fill=SUBTEXT_COLOR, font=FONT_CAPTION)
-
-            # Severity Fallback
-            tk.Label(fallback_container, text="Alert Severities Distribution", bg=CARD_COLOR, fg=TEXT_COLOR, font=FONT_SUBHEADER).pack(anchor="w", pady=(0, 5))
-            sev_canvas = tk.Canvas(fallback_container, bg=BG_COLOR, height=120, highlightthickness=0, bd=0)
-            sev_canvas.pack(fill="x", expand=True)
-
-            sev_dict = data["alert_distribution"]["severity_distribution"]
-            y_off = 15
-            for idx, (severity, count) in enumerate(sev_dict.items()):
-                color_map = {"CRITICAL": DANGER_COLOR, "HIGH": WARNING_COLOR, "MEDIUM": PRIMARY_COLOR, "LOW": SUCCESS_COLOR}
-                color = color_map.get(severity, SUBTEXT_COLOR)
-                sev_canvas.create_rectangle(15, y_off - 6, 25, y_off + 4, fill=color, outline="")
-                sev_canvas.create_text(35, y_off, text=f"{severity}: {count} alerts", fill=TEXT_COLOR, anchor="w", font=FONT_BODY)
-                y_off += 25
+    def _show_error(self, msg: str) -> None:
+        self._loading.configure(text=f"⚠  Failed to load analytics: {msg}",
+                                text_color=DANGER_COLOR)

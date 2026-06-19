@@ -1,100 +1,95 @@
-import tkinter as tk
-from tkinter import ttk
-from ui.widgets.theme import CARD_COLOR, TEXT_COLOR, SUBTEXT_COLOR, FONT_BODY
+"""
+FinGuard UI – SearchBar Widget
+Premium CTkFrame search bar with icon button and placeholder text.
+"""
+import customtkinter as ctk
+from typing import Callable, Optional
+from ui.widgets.theme import (
+    CARD_COLOR, BG_COLOR, TEXT_COLOR, SUBTEXT_COLOR,
+    PRIMARY_COLOR, BORDER_COLOR, FONT_FAMILY
+)
 
-class SearchBar(ttk.Frame):
+
+class SearchBar(ctk.CTkFrame):
     """
-    A premium search bar container with input placeholder support,
-    a search button, and a clear button.
+    A styled search input with magnifier button and placeholder text.
+    Fires search_callback(query: str) on Enter or button click.
     """
-    def __init__(self, parent, placeholder: str = "Search...", search_callback=None, **kwargs) -> None:
-        super().__init__(parent, style="TFrame", **kwargs)
-        self.placeholder = placeholder
-        self.search_callback = search_callback
+    def __init__(self, parent, placeholder: str = "Search...",
+                 search_callback: Optional[Callable[[str], None]] = None, **kwargs):
+        super().__init__(parent, fg_color=CARD_COLOR, corner_radius=8, **kwargs)
 
-        # Styled wrapper frame to resemble a rounded, padded entry box
-        self.input_frame = tk.Frame(self, bg=CARD_COLOR, padx=8, pady=4, bd=1, relief="flat")
-        self.input_frame.pack(fill="x", expand=True, side="left")
+        self._callback = search_callback
+        self._placeholder = placeholder
+        self._has_placeholder = True
 
-        # Search Icon label
-        self.icon_lbl = tk.Label(self.input_frame, text="🔍", bg=CARD_COLOR, fg=SUBTEXT_COLOR)
-        self.icon_lbl.pack(side="left", padx=(4, 8))
-
-        # Text input entry
-        self.entry = tk.Entry(
-            self.input_frame,
-            bg=CARD_COLOR,
-            fg=SUBTEXT_COLOR,
-            bd=0,
-            insertbackground=TEXT_COLOR,
-            font=FONT_BODY,
-            highlightthickness=0
+        # Search icon label
+        icon_lbl = ctk.CTkLabel(
+            self,
+            text="🔍",
+            font=ctk.CTkFont(family=FONT_FAMILY, size=13),
+            text_color=SUBTEXT_COLOR,
+            width=30,
+            fg_color="transparent"
         )
-        self.entry.insert(0, self.placeholder)
-        self.entry.pack(fill="x", expand=True, side="left")
-        
-        # Clear button (hidden by default)
-        self.clear_btn = tk.Button(
-            self.input_frame,
+        icon_lbl.pack(side="left", padx=(10, 0))
+
+        # Entry field
+        self._entry = ctk.CTkEntry(
+            self,
+            placeholder_text=placeholder,
+            fg_color="transparent",
+            border_width=0,
+            text_color=TEXT_COLOR,
+            placeholder_text_color=SUBTEXT_COLOR,
+            font=ctk.CTkFont(family=FONT_FAMILY, size=11),
+        )
+        self._entry.pack(side="left", fill="x", expand=True, padx=6, pady=6)
+        self._entry.bind("<Return>", self._on_search)
+
+        # Clear button
+        self._clear_btn = ctk.CTkButton(
+            self,
             text="✕",
-            bg=CARD_COLOR,
-            fg=SUBTEXT_COLOR,
-            bd=0,
-            activebackground=CARD_COLOR,
-            activeforeground=TEXT_COLOR,
-            cursor="hand2",
-            command=self.clear_search,
-            font=("Segoe UI", 9)
+            width=28,
+            height=28,
+            corner_radius=6,
+            fg_color="transparent",
+            hover_color="#334155",
+            text_color=SUBTEXT_COLOR,
+            font=ctk.CTkFont(family=FONT_FAMILY, size=11),
+            command=self._clear
         )
-        # Show/Hide clear button dynamically on keystroke
-        self.entry.bind("<KeyRelease>", self._on_key_release)
-        self.entry.bind("<FocusIn>", self._on_focus_in)
-        self.entry.bind("<FocusOut>", self._on_focus_out)
-        self.entry.bind("<Return>", self._on_submit)
+        self._clear_btn.pack(side="right", padx=(0, 6))
 
-        # Submit button
-        self.submit_btn = ttk.Button(
+        # Search button
+        search_btn = ctk.CTkButton(
             self,
             text="Search",
-            command=self._on_submit,
-            style="TButton"
+            width=72,
+            height=28,
+            corner_radius=6,
+            fg_color=PRIMARY_COLOR,
+            hover_color="#1D4ED8",
+            text_color=TEXT_COLOR,
+            font=ctk.CTkFont(family=FONT_FAMILY, size=11, weight="bold"),
+            command=self._on_search
         )
-        self.submit_btn.pack(side="left", padx=(10, 0))
+        search_btn.pack(side="right", padx=(0, 6))
 
-    def _on_key_release(self, event=None) -> None:
-        val = self.entry.get()
-        if val and val != self.placeholder:
-            self.clear_btn.pack(side="right", padx=(4, 4))
-        else:
-            self.clear_btn.pack_forget()
+    def _on_search(self, event=None) -> None:
+        query = self._entry.get().strip()
+        if self._callback:
+            self._callback(query)
 
-    def _on_focus_in(self, event) -> None:
-        if self.entry.get() == self.placeholder:
-            self.entry.delete(0, "end")
-            self.entry.configure(fg=TEXT_COLOR)
+    def _clear(self) -> None:
+        self._entry.delete(0, "end")
+        if self._callback:
+            self._callback("")
 
-    def _on_focus_out(self, event) -> None:
-        if not self.entry.get():
-            self.entry.insert(0, self.placeholder)
-            self.entry.configure(fg=SUBTEXT_COLOR)
-            self.clear_btn.pack_forget()
+    def get(self) -> str:
+        return self._entry.get().strip()
 
-    def _on_submit(self, event=None) -> None:
-        if self.search_callback:
-            query = self.get_query()
-            self.search_callback(query)
-
-    def clear_search(self) -> None:
-        self.entry.delete(0, "end")
-        self.clear_btn.pack_forget()
-        if self.entry != self.focus_get():
-            self.entry.insert(0, self.placeholder)
-            self.entry.configure(fg=SUBTEXT_COLOR)
-        if self.search_callback:
-            self.search_callback("")
-
-    def get_query(self) -> str:
-        val = self.entry.get()
-        if val == self.placeholder:
-            return ""
-        return val.strip()
+    def set(self, text: str) -> None:
+        self._entry.delete(0, "end")
+        self._entry.insert(0, text)

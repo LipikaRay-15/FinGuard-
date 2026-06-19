@@ -1,228 +1,276 @@
-import tkinter as tk
-from tkinter import ttk
-from tkinter import messagebox
+"""
+FinGuard UI – Alerts Page
+Risk alert queue with filters, detail panel, and status actions.
+"""
 import threading
-from typing import Dict, Any, List
+from typing import Any, Dict, List
+import customtkinter as ctk
+from tkinter import messagebox
 
-# Reusable widgets
-from ui.widgets.tables import TableWidget
-from ui.widgets.searchbar import SearchBar
+from ui.widgets.tables       import TableWidget
+from ui.widgets.searchbar    import SearchBar
 from ui.widgets.status_badges import StatusBadge
 from ui.widgets.theme import (
     BG_COLOR, CARD_COLOR, TEXT_COLOR, SUBTEXT_COLOR,
     PRIMARY_COLOR, SUCCESS_COLOR, WARNING_COLOR, DANGER_COLOR,
-    FONT_HEADER, FONT_SUBHEADER, FONT_BODY, FONT_CAPTION
+    FONT_FAMILY, SPACE_S, SPACE_XS, BasePage
 )
-
-# Backend imports
 from services import AlertService
 
-class AlertsPage(ttk.Frame):
-    """
-    Risk Alerts Queue page. Displays raised alert records,
-    filters by severity/status, and updates alert state properties.
-    """
+
+class AlertsPage(BasePage):
+    """Risk Alerts Queue page subclassing standardized BasePage layout."""
+
     def __init__(self, parent) -> None:
-        super().__init__(parent, style="TFrame")
+        super().__init__(parent, title_text="Security Alerts Queue", has_right_panel=True)
         self.service = AlertService()
-
-        # Selection state
-        self.selected_alert_id = None
+        self.selected_alert_id   = None
         self.selected_alert_data = None
+        self.status_filter   = ""
+        self.severity_filter = ""
+        self.search_query    = ""
 
-        # Filter properties
-        self.status_filter = "All Statuses"
-        self.severity_filter = "All Severities"
-        self.search_query = ""
+        # ── 1. Header Action Button ──
+        ctk.CTkButton(self.header_actions, text="⟳  Refresh Queue", width=120, height=36, corner_radius=8,
+                      fg_color="#1E293B", hover_color="#334155", text_color=TEXT_COLOR,
+                      font=ctk.CTkFont(family=FONT_FAMILY, size=13, weight="bold"),
+                      command=self._load_alerts).pack(side="right", pady=22)
 
-        # Header Frame
-        self.header_frame = tk.Frame(self, bg=BG_COLOR)
-        self.header_frame.pack(fill="x", pady=(10, 20))
+        # ── 2. Toolbar ──
+        self._search = SearchBar(self.toolbar, placeholder="Search Customer ID or TX ID…",
+                                 search_callback=self._search_alerts)
+        self._search.pack(side="left", fill="x", expand=True, pady=6)
 
-        self.title_lbl = ttk.Label(self.header_frame, text="Security Alerts Queue", style="HeaderTitle.TLabel")
-        self.title_lbl.pack(side="left")
-
-        # Split Container
-        self.main_split = tk.Frame(self, bg=BG_COLOR)
-        self.main_split.pack(fill="both", expand=True)
-        self.main_split.columnconfigure(0, weight=4) # Left Table
-        self.main_split.columnconfigure(1, weight=2) # Right Detail Panel
-
-        # Left Column Frame (Table and controls)
-        self.left_frame = tk.Frame(self.main_split, bg=BG_COLOR)
-        self.left_frame.grid(row=0, column=0, sticky="nsew", padx=(0, 10))
-
-        # Filter Options Panel
-        self.filter_frame = tk.Frame(self.left_frame, bg=BG_COLOR)
-        self.filter_frame.pack(fill="x", pady=(0, 15))
-
-        self.search_bar = SearchBar(self.filter_frame, placeholder="Search Customer or TX ID...", search_callback=self._search_alerts)
-        self.search_bar.pack(side="left", fill="x", expand=True)
-
-        self.status_cmb = ttk.Combobox(self.filter_frame, values=["All Statuses", "OPEN", "UNDER_REVIEW", "RESOLVED", "FALSE_POSITIVE", "CLOSED"], style="TCombobox", state="readonly", width=15)
-        self.status_cmb.set("All Statuses")
-        self.status_cmb.pack(side="left", padx=(10, 0))
-        self.status_cmb.bind("<<ComboboxSelected>>", self._on_status_filter_changed)
-
-        self.sev_cmb = ttk.Combobox(self.filter_frame, values=["All Severities", "LOW", "MEDIUM", "HIGH", "CRITICAL"], style="TCombobox", state="readonly", width=15)
-        self.sev_cmb.set("All Severities")
-        self.sev_cmb.pack(side="left", padx=(10, 0))
-        self.sev_cmb.bind("<<ComboboxSelected>>", self._on_severity_filter_changed)
-
-        # Alert Table Grid
-        self.table = TableWidget(
-            self.left_frame,
-            columns=["alert_id", "tx_id", "cust_id", "score", "severity", "status", "time"],
-            headers=["Alert ID", "TX ID", "Cust ID", "Risk Score", "Severity", "Status", "Timestamp"]
+        self._status_cmb = ctk.CTkComboBox(
+            self.toolbar, values=["All Status","OPEN","UNDER_REVIEW","RESOLVED","FALSE_POSITIVE","CLOSED"],
+            fg_color=CARD_COLOR, border_color="#334155",
+            text_color=TEXT_COLOR, button_color="#334155",
+            dropdown_fg_color=CARD_COLOR, dropdown_text_color=TEXT_COLOR,
+            font=ctk.CTkFont(family=FONT_FAMILY, size=12),
+            width=145, height=36, corner_radius=8, state="readonly",
+            command=self._on_status_changed
         )
-        self.table.pack(fill="both", expand=True)
-        self.table.bind_select(self._on_alert_selected)
+        self._status_cmb.set("All Status")
+        self._status_cmb.pack(side="left", padx=(8, 0), pady=6)
 
-        # Right Column Frame (Detail Panel)
-        self.right_frame = tk.Frame(self.main_split, bg=CARD_COLOR, padx=16, pady=16)
-        self.right_frame.grid(row=0, column=1, sticky="nsew", padx=(10, 0))
+        self._sev_cmb = ctk.CTkComboBox(
+            self.toolbar, values=["All Severity","LOW","MEDIUM","HIGH","CRITICAL"],
+            fg_color=CARD_COLOR, border_color="#334155",
+            text_color=TEXT_COLOR, button_color="#334155",
+            dropdown_fg_color=CARD_COLOR, dropdown_text_color=TEXT_COLOR,
+            font=ctk.CTkFont(family=FONT_FAMILY, size=12),
+            width=140, height=36, corner_radius=8, state="readonly",
+            command=self._on_severity_changed
+        )
+        self._sev_cmb.set("All Severity")
+        self._sev_cmb.pack(side="left", padx=(8, 0), pady=6)
 
-        self.detail_title_lbl = tk.Label(self.right_frame, text="Alert Details", bg=CARD_COLOR, fg=TEXT_COLOR, font=FONT_HEADER)
-        self.detail_title_lbl.pack(anchor="w", pady=(0, 15))
+        # ── 3. Main Content: Table ──
+        self._table = TableWidget(
+            self.main_content,
+            columns=["alert_id","tx_id","cust_id","score","severity","status","time"],
+            headers=["Alert ID","TX ID","Cust ID","Risk Score","Severity","Status","Timestamp"]
+        )
+        self._table.pack(fill="both", expand=True)
+        self._table.bind_select(self._on_alert_selected)
 
-        self.details_container = tk.Frame(self.right_frame, bg=CARD_COLOR)
-        self.details_container.pack(fill="both", expand=True)
-
-        self.no_sel_lbl = tk.Label(self.details_container, text="Select an alert to inspect workflow controls.", bg=CARD_COLOR, fg=SUBTEXT_COLOR, font=FONT_BODY)
-        self.no_sel_lbl.pack(pady=40)
-
-        # Action Buttons frame (initially hidden)
-        self.action_frame = tk.Frame(self.right_frame, bg=CARD_COLOR)
+        # ── 4. Right column: detail panel ──
+        detail_header = ctk.CTkFrame(self.right_panel, fg_color="transparent", height=40)
+        detail_header.pack(fill="x", padx=SPACE_S, pady=(SPACE_S, 0))
         
-        self.review_btn = ttk.Button(self.action_frame, text="Investigate", command=self._start_review)
-        self.review_btn.pack(side="left", padx=3)
+        ctk.CTkLabel(detail_header, text="Alert Details",
+                     font=ctk.CTkFont(family=FONT_FAMILY, size=14, weight="bold"),
+                     text_color=TEXT_COLOR).pack(side="left")
 
-        self.escalate_btn = ttk.Button(self.action_frame, text="Escalate", command=self._escalate_alert, style="Warning.TButton")
-        self.escalate_btn.pack(side="left", padx=3)
+        ctk.CTkFrame(self.right_panel, fg_color="#2D3748", height=1).pack(fill="x", padx=SPACE_S, pady=(8, 0))
 
-        self.close_btn = ttk.Button(self.action_frame, text="Resolve / Close", command=self._close_alert, style="Success.TButton")
-        self.close_btn.pack(side="left", padx=3)
+        self._details_scroll = ctk.CTkScrollableFrame(
+            self.right_panel, fg_color="transparent",
+            scrollbar_fg_color=CARD_COLOR, scrollbar_button_color="#334155"
+        )
+        self._details_scroll.pack(fill="both", expand=True, padx=SPACE_S, pady=SPACE_S)
 
-        # Initial Load
+        # Initial Empty State
+        self._show_empty_state()
+
+        # Action buttons row
+        self._action_row = ctk.CTkFrame(self.right_panel, fg_color="transparent", height=60)
+        self._action_row.pack_propagate(False)
+
+        ctk.CTkButton(self._action_row, text="Review",
+                      width=76, height=36, corner_radius=8,
+                      fg_color=PRIMARY_COLOR, hover_color="#1D4ED8",
+                      font=ctk.CTkFont(family=FONT_FAMILY, size=12, weight="bold"),
+                      command=self._start_review).pack(side="left", padx=(SPACE_S, 4), pady=12)
+
+        ctk.CTkButton(self._action_row, text="Escalate",
+                      width=76, height=36, corner_radius=8,
+                      fg_color=WARNING_COLOR, hover_color="#D97706",
+                      font=ctk.CTkFont(family=FONT_FAMILY, size=12, weight="bold"),
+                      command=self._escalate_alert).pack(side="left", padx=4, pady=12)
+
+        ctk.CTkButton(self._action_row, text="Resolve",
+                      width=76, height=36, corner_radius=8,
+                      fg_color=SUCCESS_COLOR, hover_color="#059669",
+                      font=ctk.CTkFont(family=FONT_FAMILY, size=12, weight="bold"),
+                      command=self._close_alert).pack(side="left", padx=4, pady=12)
+
+        # ── 5. Footer Frame ──
+        self._stats_lbl = ctk.CTkLabel(self.footer, text="",
+                                        font=ctk.CTkFont(family=FONT_FAMILY, size=12),
+                                        text_color=SUBTEXT_COLOR, anchor="w")
+        self._stats_lbl.pack(side="left", pady=10)
+
         self._load_alerts()
+
+    def _show_empty_state(self) -> None:
+        for w in self._details_scroll.winfo_children():
+            w.destroy()
+        if hasattr(self, "_action_row") and self._action_row:
+            self._action_row.pack_forget()
+
+        empty_container = ctk.CTkFrame(self._details_scroll, fg_color="transparent")
+        empty_container.pack(fill="both", expand=True, pady=120)
+
+        icon_lbl = ctk.CTkLabel(
+            empty_container, text="🚨",
+            font=ctk.CTkFont(family=FONT_FAMILY, size=64),
+            text_color=SUBTEXT_COLOR
+        )
+        icon_lbl.pack(pady=(0, SPACE_S))
+
+        msg_lbl = ctk.CTkLabel(
+            empty_container,
+            text="No Alert Selected",
+            font=ctk.CTkFont(family=FONT_FAMILY, size=16, weight="bold"),
+            text_color=TEXT_COLOR, justify="center"
+        )
+        msg_lbl.pack()
+
+        sub_msg_lbl = ctk.CTkLabel(
+            empty_container,
+            text="Select a security alert from the queue\nto inspect details and take actions.",
+            font=ctk.CTkFont(family=FONT_FAMILY, size=12),
+            text_color=SUBTEXT_COLOR, justify="center"
+        )
+        sub_msg_lbl.pack(pady=(4, 0))
+
+    # ── Data Loading ──────────────────────────────────────────────────────
 
     def _load_alerts(self) -> None:
-        self.table.clear()
-        
-        # Async query
-        threading.Thread(target=self._load_alerts_worker, daemon=True).start()
+        self._table.clear()
+        threading.Thread(target=self._load_worker, daemon=True).start()
 
-    def _load_alerts_worker(self) -> None:
+    def _load_worker(self) -> None:
         try:
             sql = "SELECT * FROM alerts"
-            where_clauses = []
-            params = []
-
+            clauses, params = [], []
             if self.search_query:
-                where_clauses.append("(customer_id = %s OR transaction_id = %s)")
-                params.extend([self.search_query, self.search_query])
-
-            if self.status_filter != "All Statuses":
-                where_clauses.append("status = %s")
-                params.append(self.status_filter)
-
-            if self.severity_filter != "All Severities":
-                where_clauses.append("severity = %s")
-                params.append(self.severity_filter)
-
-            if where_clauses:
-                sql += " WHERE " + " AND ".join(where_clauses)
-                
-            sql += " ORDER BY created_at DESC LIMIT 50"
-
+                clauses.append("(customer_id = %s OR transaction_id = %s)")
+                params += [self.search_query, self.search_query]
+            if self.status_filter:
+                clauses.append("status = %s"); params.append(self.status_filter)
+            if self.severity_filter:
+                clauses.append("severity = %s"); params.append(self.severity_filter)
+            if clauses:
+                sql += " WHERE " + " AND ".join(clauses)
+            sql += " ORDER BY created_at DESC LIMIT 100"
             rows = self.service.db.fetch_all(sql, tuple(params))
-            
             self.after(0, self._populate_table, rows)
         except Exception as e:
-            self.after(0, lambda: messagebox.showerror("Database Error", f"Failed loading alerts: {e}"))
+            self.after(0, lambda: messagebox.showerror("DB Error", str(e)))
 
-    def _populate_table(self, rows: List[Dict[str, Any]]) -> None:
+    def _populate_table(self, rows: List[Dict]) -> None:
         for r in rows:
-            self.table.insert_row([
-                r["alert_id"],
-                r["transaction_id"],
-                r["customer_id"],
-                f"{r['risk_score']}/100",
-                r["severity"],
-                r["status"],
-                r["created_at"]
+            self._table.insert_row([
+                r["alert_id"], r["transaction_id"], r["customer_id"],
+                f"{r['risk_score']}/100", r["severity"], r["status"],
+                str(r["created_at"])[:16]
             ], item_id=r["alert_id"])
+        self._stats_lbl.configure(text=f"{len(rows)} alerts loaded")
 
-    def _search_alerts(self, query: str) -> None:
-        self.search_query = query
+    # ── Filters ───────────────────────────────────────────────────────────
+
+    def _search_alerts(self, q: str) -> None:
+        self.search_query = q
         self._load_alerts()
 
-    def _on_status_filter_changed(self, event) -> None:
-        self.status_filter = self.status_cmb.get()
+    def _on_status_changed(self, val: str) -> None:
+        self.status_filter = "" if val.startswith("All") else val
         self._load_alerts()
 
-    def _on_severity_filter_changed(self, event) -> None:
-        self.severity_filter = self.sev_cmb.get()
+    def _on_severity_changed(self, val: str) -> None:
+        self.severity_filter = "" if val.startswith("All") else val
         self._load_alerts()
+
+    # ── Selection ─────────────────────────────────────────────────────────
 
     def _on_alert_selected(self, item_id: Any) -> None:
-        if not item_id:
-            return
-        
         self.selected_alert_id = int(item_id)
-        # Fetch alert record details in background
-        threading.Thread(target=self._load_alert_details_worker, args=(self.selected_alert_id,), daemon=True).start()
+        threading.Thread(target=self._load_details_worker,
+                         args=(self.selected_alert_id,), daemon=True).start()
 
-    def _load_alert_details_worker(self, alert_id: int) -> None:
+    def _load_details_worker(self, alert_id: int) -> None:
         try:
-            row = self.service.db.fetch_one("SELECT * FROM alerts WHERE alert_id = %s", (alert_id,))
+            row = self.service.db.fetch_one(
+                "SELECT * FROM alerts WHERE alert_id = %s", (alert_id,))
             if row:
-                self.after(0, self._populate_details_panel, row)
+                self.after(0, self._populate_details, row)
         except Exception as e:
-            self.after(0, lambda: messagebox.showerror("Database Error", f"Failed to retrieve alert details: {e}"))
+            self.after(0, lambda: messagebox.showerror("Error", str(e)))
 
-    def _populate_details_panel(self, data: Dict[str, Any]) -> None:
+    def _populate_details(self, data: Dict) -> None:
         self.selected_alert_data = data
-        
-        # Clear details panel
-        for child in self.details_container.winfo_children():
-            child.destroy()
-        self.no_sel_lbl.pack_forget()
+        for w in self._details_scroll.winfo_children():
+            w.destroy()
 
-        # Highlight Alert Header
-        lbl_id = tk.Label(self.details_container, text=f"Alert #{data['alert_id']}", bg=CARD_COLOR, fg=TEXT_COLOR, font=FONT_HEADER)
-        lbl_id.pack(anchor="w", pady=(0, 5))
+        # Alert ID heading
+        ctk.CTkLabel(
+            self._details_scroll,
+            text=f"Alert #{data['alert_id']}",
+            font=ctk.CTkFont(family=FONT_FAMILY, size=15, weight="bold"),
+            text_color=TEXT_COLOR
+        ).pack(anchor="w", pady=(4, 6))
 
-        # Status badge
-        badge_frame = tk.Frame(self.details_container, bg=CARD_COLOR)
-        badge_frame.pack(anchor="w", pady=(0, 15))
-        
-        status_b = StatusBadge(badge_frame, data["status"])
-        status_b.pack(side="left", padx=(0, 10))
+        # Status + severity badges
+        badge_row = ctk.CTkFrame(self._details_scroll, fg_color="transparent")
+        badge_row.pack(anchor="w", pady=(0, 12))
+        StatusBadge(badge_row, data["status"]).pack(side="left", padx=(0, 6))
+        StatusBadge(badge_row, data["severity"]).pack(side="left")
 
-        sev_b = StatusBadge(badge_frame, data["severity"])
-        sev_b.pack(side="left")
+        # Risk score bar
+        score = data.get("risk_score", 0)
+        ctk.CTkLabel(self._details_scroll, text=f"Risk Score: {score}/100",
+                     font=ctk.CTkFont(family=FONT_FAMILY, size=11),
+                     text_color=SUBTEXT_COLOR).pack(anchor="w", pady=(0, 4))
+        bar = ctk.CTkProgressBar(self._details_scroll, height=6,
+                                  fg_color="#1E293B", corner_radius=3)
+        bar.set(score / 100)
+        from ui.widgets.theme import SEVERITY_COLORS
+        bar.configure(progress_color=SEVERITY_COLORS.get(data["severity"], PRIMARY_COLOR))
+        bar.pack(fill="x", padx=2, pady=(0, 12))
 
-        # Key details
+        # Detail fields
         fields = [
             ("Transaction ID", data["transaction_id"]),
-            ("Customer ID", data["customer_id"]),
-            ("Risk Score", f"{data['risk_score']}/100"),
-            ("Logged Date", data["created_at"])
+            ("Customer ID",    data["customer_id"]),
+            ("Logged Date",    str(data["created_at"])[:16]),
         ]
-
+        ctk.CTkFrame(self._details_scroll, fg_color="#2D3748", height=1).pack(
+            fill="x", pady=(0, 8))
         for k, v in fields:
-            row = tk.Frame(self.details_container, bg=CARD_COLOR, pady=4)
-            row.pack(fill="x")
+            row = ctk.CTkFrame(self._details_scroll, fg_color="transparent", height=26)
+            row.pack(fill="x", pady=2)
+            ctk.CTkLabel(row, text=f"{k}:", text_color=SUBTEXT_COLOR,
+                         font=ctk.CTkFont(family=FONT_FAMILY, size=10),
+                         width=110, anchor="w").pack(side="left")
+            ctk.CTkLabel(row, text=str(v), text_color=TEXT_COLOR,
+                         font=ctk.CTkFont(family=FONT_FAMILY, size=10),
+                         anchor="w").pack(side="left", fill="x", expand=True)
 
-            lbl_key = tk.Label(row, text=f"{k}:", bg=CARD_COLOR, fg=SUBTEXT_COLOR, font=FONT_CAPTION, width=15, anchor="w")
-            lbl_key.pack(side="left")
+        self._action_row.pack(fill="x", pady=(8, 4))
 
-            lbl_val = tk.Label(row, text=str(v), bg=CARD_COLOR, fg=TEXT_COLOR, font=FONT_BODY, anchor="w")
-            lbl_val.pack(side="left")
-
-        # Show action frame buttons
-        self.action_frame.pack(fill="x", side="bottom", pady=10)
+    # ── Actions ───────────────────────────────────────────────────────────
 
     def _start_review(self) -> None:
         if not self.selected_alert_id:
@@ -230,36 +278,33 @@ class AlertsPage(ttk.Frame):
         try:
             self.service.update_alert_status(self.selected_alert_id, "UNDER_REVIEW")
             self._load_alerts()
-            self._load_alert_details_worker(self.selected_alert_id)
-            messagebox.showinfo("Status Updated", f"Alert #{self.selected_alert_id} transition set to UNDER_REVIEW.")
+            self._load_details_worker(self.selected_alert_id)
+            messagebox.showinfo("Updated", f"Alert #{self.selected_alert_id} → UNDER_REVIEW")
         except Exception as e:
-            messagebox.showerror("Error", f"Failed updating alert status: {e}")
+            messagebox.showerror("Error", str(e))
 
     def _escalate_alert(self) -> None:
         if not self.selected_alert_id:
             return
-        
-        # Escalate alert takes a note argument
-        confirm = messagebox.askyesno("Escalate Alert", "Escalate alert to compliance/investigators queue?")
-        if confirm:
+        if messagebox.askyesno("Escalate", "Escalate alert to compliance queue?"):
             try:
-                self.service.escalate_alert(self.selected_alert_id, "Escalated from desktop monitoring dashboard panel.")
+                self.service.escalate_alert(self.selected_alert_id,
+                                            "Escalated from desktop monitoring dashboard.")
                 self._load_alerts()
-                self._load_alert_details_worker(self.selected_alert_id)
-                messagebox.showinfo("Status Updated", f"Alert #{self.selected_alert_id} successfully escalated.")
+                self._load_details_worker(self.selected_alert_id)
+                messagebox.showinfo("Escalated", f"Alert #{self.selected_alert_id} escalated.")
             except Exception as e:
-                messagebox.showerror("Error", f"Failed to escalate: {e}")
+                messagebox.showerror("Error", str(e))
 
     def _close_alert(self) -> None:
         if not self.selected_alert_id:
             return
-            
-        confirm = messagebox.askyesno("Resolve Alert", "Mark this alert as RESOLVED and close the case?")
-        if confirm:
+        if messagebox.askyesno("Resolve", "Mark this alert as RESOLVED?"):
             try:
-                self.service.close_alert(self.selected_alert_id, "Legitimate transaction verified by manual analyst check.")
+                self.service.close_alert(self.selected_alert_id,
+                                         "Legitimate transaction verified by analyst.")
                 self._load_alerts()
-                self._load_alert_details_worker(self.selected_alert_id)
-                messagebox.showinfo("Resolved", f"Alert #{self.selected_alert_id} closed and resolved.")
+                self._load_details_worker(self.selected_alert_id)
+                messagebox.showinfo("Resolved", f"Alert #{self.selected_alert_id} resolved.")
             except Exception as e:
-                messagebox.showerror("Error", f"Failed resolving: {e}")
+                messagebox.showerror("Error", str(e))

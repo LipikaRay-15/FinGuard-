@@ -84,3 +84,25 @@ def setup_logging() -> None:
         fraud_handler.setLevel(logging.INFO)
         fraud_handler.setFormatter(formatter)
         fraud_logger.addHandler(fraud_handler)
+
+# ── User Preferences Onboarding Helpers ──────────────────────────────────────────
+import json
+
+USER_PREFS_FILE = os.path.join(BASE_DIR, "config", "user_preferences.json")
+
+def load_user_preferences() -> dict:
+    try:
+        if os.path.exists(USER_PREFS_FILE):
+            with open(USER_PREFS_FILE, "r", encoding="utf-8") as f:
+                return json.load(f)
+    except Exception:
+        pass
+    return {"first_run_completed": False}
+
+def save_user_preferences(prefs: dict) -> None:
+    try:
+        os.makedirs(os.path.dirname(USER_PREFS_FILE), exist_ok=True)
+        with open(USER_PREFS_FILE, "w", encoding="utf-8") as f:
+            json.dump(prefs, f, indent=4)
+    except Exception:
+        pass

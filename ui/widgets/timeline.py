@@ -1,100 +1,123 @@
-import tkinter as tk
-from tkinter import ttk
+"""
+FinGuard UI – TimelineWidget
+Vertical security audit timeline built with CustomTkinter.
+"""
+import customtkinter as ctk
 from typing import List, Dict, Any
-from ui.widgets.theme import BG_COLOR, CARD_COLOR, TEXT_COLOR, SUBTEXT_COLOR, PRIMARY_COLOR, FONT_CAPTION, FONT_BODY, FONT_SUBHEADER
+from ui.widgets.theme import (
+    CARD_COLOR, BG_COLOR, TEXT_COLOR, SUBTEXT_COLOR,
+    PRIMARY_COLOR, SUCCESS_COLOR, FONT_FAMILY
+)
 
-class TimelineWidget(ttk.Frame):
-    """
-    A premium timeline list layout. Draws vertical connected line bars
-    and status circles to represent analyst events chronologically.
-    """
-    def __init__(self, parent, **kwargs) -> None:
-        super().__init__(parent, style="TFrame", **kwargs)
 
-        # Scrollable container
-        self.canvas = tk.Canvas(self, bg=BG_COLOR, highlightthickness=0, bd=0)
-        self.scrollbar = ttk.Scrollbar(self, orient="vertical", command=self.canvas.yview)
-        
-        self.scrollable_frame = tk.Frame(self.canvas, bg=BG_COLOR)
-        self.scrollable_frame.bind(
-            "<Configure>",
-            lambda e: self.canvas.configure(
-                scrollregion=self.canvas.bbox("all")
-            )
+class TimelineWidget(ctk.CTkScrollableFrame):
+    """
+    Renders a vertical event timeline with dot-node markers,
+    timestamps, and event title text.
+
+    Usage:
+        widget.set_events([{"time": "...", "title": "...", "details": "..."}, ...])
+    """
+
+    def __init__(self, parent, **kwargs):
+        super().__init__(
+            parent,
+            fg_color="transparent",
+            scrollbar_fg_color="#0F172A",
+            scrollbar_button_color=PRIMARY_COLOR,
+            **kwargs
         )
-
-        self.canvas_frame = self.canvas.create_window((0, 0), window=self.scrollable_frame, anchor="nw")
-        self.canvas.configure(yscrollcommand=self.scrollbar.set)
-        
-        # Bind canvas size configuration to width resizing
-        self.canvas.bind("<Configure>", self._on_canvas_configure)
-
-        self.canvas.pack(side="left", fill="both", expand=True)
-        self.scrollbar.pack(side="right", fill="y")
-
-    def _on_canvas_configure(self, event) -> None:
-        # Match scrollable frame width to canvas width
-        self.canvas.itemconfig(self.canvas_frame, width=event.width)
+        self._events: List[Dict[str, Any]] = []
 
     def set_events(self, events: List[Dict[str, Any]]) -> None:
-        """
-        Populates the timeline.
-        Expected event format: {"time": "10:15 AM", "title": "Case Closed", "details": "Analyst Bob, score: 75"}
-        """
-        # Clear existing items
-        for child in self.scrollable_frame.winfo_children():
-            child.destroy()
+        """Clear and re-render all timeline events."""
+        # Clear old widgets
+        for w in self.winfo_children():
+            w.destroy()
+        self._events = events
+        self._render()
 
-        if not events:
-            empty_lbl = ttk.Label(self.scrollable_frame, text="No timeline events recorded.", style="TLabel")
-            empty_lbl.pack(pady=20, padx=20)
+    def _render(self) -> None:
+        if not self._events:
+            ctk.CTkLabel(
+                self,
+                text="No timeline events recorded.",
+                text_color=SUBTEXT_COLOR,
+                font=ctk.CTkFont(family=FONT_FAMILY, size=11),
+            ).pack(pady=20, anchor="w", padx=16)
             return
 
-        for idx, event in enumerate(events):
-            item_frame = tk.Frame(self.scrollable_frame, bg=BG_COLOR)
-            item_frame.pack(fill="x", expand=True)
+        for idx, event in enumerate(self._events):
+            is_last = (idx == len(self._events) - 1)
+            self._render_event(event, is_last)
 
-            # Left Timeline line-dot canvas
-            indicator_canvas = tk.Canvas(item_frame, width=30, height=70, bg=BG_COLOR, highlightthickness=0, bd=0)
-            indicator_canvas.pack(side="left", fill="y")
+    def _render_event(self, event: Dict[str, Any], is_last: bool) -> None:
+        row = ctk.CTkFrame(self, fg_color="transparent")
+        row.pack(fill="x", pady=2)
 
-            # Draw lines and circles
-            # Draw line connecting events (except last item)
-            indicator_canvas.create_line(15, 0 if idx > 0 else 20, 15, 70, fill="#334155", width=2)
-            
-            # Circle marker
-            indicator_canvas.create_oval(10, 15, 20, 25, fill=PRIMARY_COLOR, outline=BG_COLOR, width=2)
+        # Left: vertical line + dot
+        left_col = ctk.CTkFrame(row, fg_color="transparent", width=32)
+        left_col.pack(side="left", fill="y", padx=(8, 0))
+        left_col.pack_propagate(False)
 
-            # Right details container
-            text_frame = tk.Frame(item_frame, bg=BG_COLOR, pady=10)
-            text_frame.pack(side="left", fill="both", expand=True, padx=(10, 20))
+        # Dot
+        dot = ctk.CTkFrame(
+            left_col,
+            width=12, height=12,
+            fg_color=PRIMARY_COLOR,
+            corner_radius=6,
+        )
+        dot.place(relx=0.5, y=10, anchor="center")
 
-            time_lbl = tk.Label(
-                text_frame,
-                text=event.get("time", ""),
-                bg=BG_COLOR,
-                fg=SUBTEXT_COLOR,
-                font=FONT_CAPTION
+        # Line below (except for last event)
+        if not is_last:
+            line = ctk.CTkFrame(
+                left_col,
+                width=2, height=40,
+                fg_color="#334155",
+                corner_radius=0,
             )
-            time_lbl.pack(anchor="w")
+            line.place(relx=0.5, y=22, anchor="n")
 
-            title_lbl = tk.Label(
-                text_frame,
-                text=event.get("title", ""),
-                bg=BG_COLOR,
-                fg=TEXT_COLOR,
-                font=FONT_SUBHEADER
-            )
-            title_lbl.pack(anchor="w")
+        # Right: content
+        right_col = ctk.CTkFrame(row, fg_color=CARD_COLOR, corner_radius=8)
+        right_col.pack(side="left", fill="x", expand=True, padx=(8, 8), pady=4)
 
-            if event.get("details"):
-                details_lbl = tk.Label(
-                    text_frame,
-                    text=event.get("details", ""),
-                    bg=BG_COLOR,
-                    fg=SUBTEXT_COLOR,
-                    font=FONT_CAPTION,
-                    wraplength=400,
-                    justify="left"
-                )
-                details_lbl.pack(anchor="w")
+        # Time
+        time_str = event.get("time", "")
+        if time_str:
+            ctk.CTkLabel(
+                right_col,
+                text=time_str,
+                font=ctk.CTkFont(family=FONT_FAMILY, size=9),
+                text_color=SUBTEXT_COLOR,
+                anchor="w"
+            ).pack(anchor="w", padx=10, pady=(6, 0))
+
+        # Title
+        title_str = event.get("title", "")
+        if title_str:
+            ctk.CTkLabel(
+                right_col,
+                text=title_str,
+                font=ctk.CTkFont(family=FONT_FAMILY, size=11),
+                text_color=TEXT_COLOR,
+                anchor="w",
+                wraplength=280,
+                justify="left"
+            ).pack(anchor="w", padx=10, pady=(2, 0))
+
+        # Details
+        details_str = event.get("details", "")
+        if details_str:
+            ctk.CTkLabel(
+                right_col,
+                text=details_str,
+                font=ctk.CTkFont(family=FONT_FAMILY, size=10),
+                text_color=SUBTEXT_COLOR,
+                anchor="w",
+                wraplength=280,
+                justify="left"
+            ).pack(anchor="w", padx=10, pady=(2, 6))
+        else:
+            ctk.CTkFrame(right_col, fg_color="transparent", height=6).pack()

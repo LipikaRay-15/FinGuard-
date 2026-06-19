@@ -1,22 +1,21 @@
-import tkinter as tk
-from tkinter import ttk
+"""
+FinGuard UI – Dashboard Page
+Metric cards, top risky customers table, and Matplotlib charts.
+"""
 import threading
-from typing import Dict, Any, List
+from typing import Any, Dict, List
+import customtkinter as ctk
 
-# Reusable widgets
-from ui.widgets.cards import CardWidget
-from ui.widgets.tables import TableWidget
+from ui.widgets.cards        import CardWidget
+from ui.widgets.tables       import TableWidget
 from ui.widgets.theme import (
     BG_COLOR, CARD_COLOR, TEXT_COLOR, SUBTEXT_COLOR,
     PRIMARY_COLOR, SUCCESS_COLOR, WARNING_COLOR, DANGER_COLOR,
-    FONT_HEADER, FONT_SUBHEADER, FONT_CAPTION
+    FONT_FAMILY
 )
 
-# Backend imports
 from database import DatabaseConnection
-from services import CustomerService, AlertService, CaseService
 
-# Optional Matplotlib imports
 try:
     import matplotlib
     matplotlib.use("TkAgg")
@@ -26,208 +25,238 @@ try:
 except ImportError:
     HAS_MATPLOTLIB = False
 
-class DashboardPage(ttk.Frame):
+
+class DashboardPage(ctk.CTkFrame):
     """
-    Dashboard page framing core statistics, risky customer summaries,
-    and analytical chart widgets. Loads database metrics asynchronously.
+    Landing dashboard: 5 KPI cards, risky customer list, and fraud rule frequency chart.
     """
     def __init__(self, parent) -> None:
-        super().__init__(parent, style="TFrame")
+        super().__init__(parent, fg_color=BG_COLOR, corner_radius=0)
         self.db = DatabaseConnection()
 
-        # Page Header
-        self.header_frame = tk.Frame(self, bg=BG_COLOR)
-        self.header_frame.pack(fill="x", pady=(10, 20))
-        
-        self.title_lbl = ttk.Label(self.header_frame, text="Operations Dashboard", style="HeaderTitle.TLabel")
-        self.title_lbl.pack(side="left")
-        
-        self.refresh_btn = ttk.Button(self.header_frame, text="🔄 Refresh", command=self.load_data)
-        self.refresh_btn.pack(side="right")
+        # ── Page Header ───────────────────────────────────────────────────
+        hdr = ctk.CTkFrame(self, fg_color="transparent", height=52)
+        hdr.pack(fill="x", padx=24, pady=(20, 0))
+        hdr.pack_propagate(False)
 
-        # Scrollable container
-        self.canvas = tk.Canvas(self, bg=BG_COLOR, highlightthickness=0, bd=0)
-        self.scrollbar = ttk.Scrollbar(self, orient="vertical", command=self.canvas.yview)
-        
-        self.scroll_frame = tk.Frame(self.canvas, bg=BG_COLOR)
-        self.scroll_frame.bind(
-            "<Configure>",
-            lambda e: self.canvas.configure(scrollregion=self.canvas.bbox("all"))
+        ctk.CTkLabel(
+            hdr, text="Operations Dashboard",
+            font=ctk.CTkFont(family=FONT_FAMILY, size=20, weight="bold"),
+            text_color=TEXT_COLOR
+        ).pack(side="left", anchor="w")
+
+        self._refresh_btn = ctk.CTkButton(
+            hdr, text="⟳  Refresh",
+            width=110, height=34, corner_radius=8,
+            fg_color="#1E293B", hover_color="#334155",
+            text_color=TEXT_COLOR,
+            font=ctk.CTkFont(family=FONT_FAMILY, size=12),
+            command=self.load_data
         )
-        self.canvas_win = self.canvas.create_window((0, 0), window=self.scroll_frame, anchor="nw")
-        self.canvas.configure(yscrollcommand=self.scrollbar.set)
-        self.canvas.bind("<Configure>", lambda e: self.canvas.itemconfig(self.canvas_win, width=e.width))
-        
-        self.canvas.pack(side="left", fill="both", expand=True)
-        self.scrollbar.pack(side="right", fill="y")
+        self._refresh_btn.pack(side="right", anchor="e")
 
-        # Loading Label
-        self.loading_lbl = tk.Label(self.scroll_frame, text="Gathering system analytics...", bg=BG_COLOR, fg=SUBTEXT_COLOR, font=FONT_SUBHEADER)
-        self.loading_lbl.pack(pady=40)
+        # ── Scrollable body ────────────────────────────────────────────────
+        self._scroll = ctk.CTkScrollableFrame(
+            self, fg_color="transparent",
+            scrollbar_fg_color=BG_COLOR,
+            scrollbar_button_color="#334155"
+        )
+        self._scroll.pack(fill="both", expand=True, padx=24, pady=12)
 
-        # Build UI layout (initially hidden)
-        self.content_frame = tk.Frame(self.scroll_frame, bg=BG_COLOR)
+        # Loading indicator
+        self._loading = ctk.CTkLabel(
+            self._scroll,
+            text="⏳  Gathering system analytics…",
+            font=ctk.CTkFont(family=FONT_FAMILY, size=13),
+            text_color=SUBTEXT_COLOR
+        )
+        self._loading.pack(pady=60)
+
+        # Content frame (hidden while loading)
+        self._content = ctk.CTkFrame(self._scroll, fg_color="transparent")
         self._build_layout()
-
-        # Load data in background thread
         self.load_data()
 
     def _build_layout(self) -> None:
-        # 1. Cards Grid Frame
-        self.cards_frame = tk.Frame(self.content_frame, bg=BG_COLOR)
-        self.cards_frame.pack(fill="x", pady=(0, 20))
-        self.cards_frame.columnconfigure((0, 1, 2, 3, 4), weight=1, uniform="group1")
+        # ── Row 1: 5 KPI Cards ─────────────────────────────────────────────
+        cards_row = ctk.CTkFrame(self._content, fg_color="transparent")
+        cards_row.pack(fill="x", pady=(0, 16))
 
-        self.card_cust = CardWidget(self.cards_frame, "TOTAL CUSTOMERS", "0", "Standard KYC profiles")
-        self.card_cust.grid(row=0, column=0, padx=6, sticky="nsew")
+        self._card_cust  = CardWidget(cards_row, "Total Customers",    "—", "KYC profiles", PRIMARY_COLOR)
+        self._card_tx    = CardWidget(cards_row, "Total Transactions",  "—", "Processed events", PRIMARY_COLOR)
+        self._card_alert = CardWidget(cards_row, "Open Alerts",         "—", "Pending review", WARNING_COLOR)
+        self._card_crit  = CardWidget(cards_row, "Critical Alerts",     "—", "Immediate action", DANGER_COLOR)
+        self._card_case  = CardWidget(cards_row, "Open Cases",          "—", "Assigned queue", WARNING_COLOR)
 
-        self.card_tx = CardWidget(self.cards_frame, "TOTAL TRANSACTIONS", "0", "Scanned in Event Store")
-        self.card_tx.grid(row=0, column=1, padx=6, sticky="nsew")
+        for i, card in enumerate([self._card_cust, self._card_tx, self._card_alert,
+                                   self._card_crit, self._card_case]):
+            card.grid(row=0, column=i, sticky="nsew", padx=6)
+            cards_row.columnconfigure(i, weight=1)
 
-        self.card_alert = CardWidget(self.cards_frame, "OPEN ALERTS", "0", "Pending review", trend_color=WARNING_COLOR)
-        self.card_alert.grid(row=0, column=2, padx=6, sticky="nsew")
+        # ── Row 2: Charts left, Risky Customers right ──────────────────────
+        split = ctk.CTkFrame(self._content, fg_color="transparent")
+        split.pack(fill="both", expand=True)
+        split.columnconfigure(0, weight=3)
+        split.columnconfigure(1, weight=2)
 
-        self.card_case = CardWidget(self.cards_frame, "OPEN CASES", "0", "Assigned queue", trend_color=WARNING_COLOR)
-        self.card_case.grid(row=0, column=3, padx=6, sticky="nsew")
+        # Charts panel
+        self._charts_frame = ctk.CTkFrame(split, fg_color="transparent")
+        self._charts_frame.grid(row=0, column=0, sticky="nsew", padx=(0, 8))
 
-        self.card_crit = CardWidget(self.cards_frame, "CRITICAL ALERTS", "0", "Action required", trend_color=DANGER_COLOR)
-        self.card_crit.grid(row=0, column=4, padx=6, sticky="nsew")
+        # Risky customers panel
+        risk_panel = ctk.CTkFrame(split, fg_color=CARD_COLOR, corner_radius=12)
+        risk_panel.grid(row=0, column=1, sticky="nsew", padx=(8, 0))
 
-        # 2. Charts and Lists Split Layout
-        self.split_frame = tk.Frame(self.content_frame, bg=BG_COLOR)
-        self.split_frame.pack(fill="both", expand=True)
-        self.split_frame.columnconfigure(0, weight=3) # Left (Charts)
-        self.split_frame.columnconfigure(1, weight=2) # Right (Risky Customers)
+        risk_hdr = ctk.CTkFrame(risk_panel, fg_color="transparent", height=50)
+        risk_hdr.pack(fill="x", padx=16, pady=(16, 0))
+        risk_hdr.pack_propagate(False)
 
-        # Left Column: Charts Container
-        self.charts_frame = tk.Frame(self.split_frame, bg=BG_COLOR)
-        self.charts_frame.grid(row=0, column=0, sticky="nsew", padx=(0, 10))
+        ctk.CTkLabel(
+            risk_hdr, text="🔥  Top Risky Customers",
+            font=ctk.CTkFont(family=FONT_FAMILY, size=13, weight="bold"),
+            text_color=TEXT_COLOR
+        ).pack(side="left")
 
-        # Right Column: Risky Customers Container
-        self.risky_frame = tk.Frame(self.split_frame, bg=CARD_COLOR, padx=16, pady=16)
-        self.risky_frame.grid(row=0, column=1, sticky="nsew", padx=(10, 0))
-
-        risky_lbl = tk.Label(self.risky_frame, text="Top Risky Customers", bg=CARD_COLOR, fg=TEXT_COLOR, font=FONT_HEADER)
-        risky_lbl.pack(anchor="w", pady=(0, 10))
-
-        self.risky_table = TableWidget(
-            self.risky_frame,
+        self._risky_table = TableWidget(
+            risk_panel,
             columns=["customer_id", "name", "risk_score", "tier"],
-            headers=["ID", "Name", "Risk Score", "Risk Tier"]
+            headers=["ID", "Name", "Risk Score", "Tier"]
         )
-        self.risky_table.pack(fill="both", expand=True)
+        self._risky_table.pack(fill="both", expand=True, padx=8, pady=(8, 12))
+
+        # ── Row 3: Recent Events section ───────────────────────────────────
+        events_panel = ctk.CTkFrame(self._content, fg_color=CARD_COLOR, corner_radius=12)
+        events_panel.pack(fill="x", pady=(16, 0))
+
+        ctk.CTkLabel(
+            events_panel, text="📋  Recent System Events",
+            font=ctk.CTkFont(family=FONT_FAMILY, size=13, weight="bold"),
+            text_color=TEXT_COLOR
+        ).pack(anchor="w", padx=16, pady=(14, 4))
+
+        self._events_table = TableWidget(
+            events_panel,
+            columns=["tx_id", "customer_id", "risk_score", "severity", "status", "time"],
+            headers=["TX ID", "Customer ID", "Risk Score", "Severity", "Status", "Timestamp"]
+        )
+        self._events_table.pack(fill="x", padx=8, pady=(0, 12))
 
     def load_data(self) -> None:
-        """
-        Launches async query worker.
-        """
-        self.loading_lbl.pack(pady=40)
-        self.content_frame.pack_forget()
-        
-        thread = threading.Thread(target=self._query_database_worker, daemon=True)
-        thread.start()
+        """Trigger async data reload."""
+        self._loading.pack(pady=60)
+        self._content.pack_forget()
+        threading.Thread(target=self._worker, daemon=True).start()
 
-    def _query_database_worker(self) -> None:
+    def _worker(self) -> None:
         try:
-            # 1. Total statistics
-            c_count = self.db.fetch_one("SELECT COUNT(*) as cnt FROM customers")["cnt"]
-            t_count = self.db.fetch_one("SELECT COUNT(*) as cnt FROM transactions")["cnt"]
-            a_count = self.db.fetch_one("SELECT COUNT(*) as cnt FROM alerts WHERE status = 'OPEN'")["cnt"]
-            case_count = self.db.fetch_one("SELECT COUNT(*) as cnt FROM cases WHERE status = 'OPEN'")["cnt"]
-            crit_count = self.db.fetch_one("SELECT COUNT(*) as cnt FROM alerts WHERE severity = 'CRITICAL'")["cnt"]
-            
-            # 2. Risky Customers
-            risky_rows = self.db.fetch_all(
+            c_count    = self.db.fetch_one("SELECT COUNT(*) as cnt FROM customers")["cnt"]
+            t_count    = self.db.fetch_one("SELECT COUNT(*) as cnt FROM transactions")["cnt"]
+            a_open     = self.db.fetch_one("SELECT COUNT(*) as cnt FROM alerts WHERE status='OPEN'")["cnt"]
+            a_crit     = self.db.fetch_one("SELECT COUNT(*) as cnt FROM alerts WHERE severity='CRITICAL'")["cnt"]
+            case_open  = self.db.fetch_one("SELECT COUNT(*) as cnt FROM cases WHERE status='OPEN'")["cnt"]
+
+            risky = self.db.fetch_all(
                 "SELECT customer_id, customer_name, current_risk_score, risk_tier "
                 "FROM v_customer_risk_summary WHERE current_risk_score > 0 "
-                "ORDER BY current_risk_score DESC LIMIT 5"
+                "ORDER BY current_risk_score DESC LIMIT 8"
             )
-
-            # 3. Chart statistics (Rules triggered and severities)
-            rules_triggered = self.db.fetch_all(
-                "SELECT rule_name, COUNT(*) as cnt FROM rule_execution_logs WHERE triggered = TRUE GROUP BY rule_name"
+            rules = self.db.fetch_all(
+                "SELECT rule_name, COUNT(*) as cnt FROM rule_execution_logs "
+                "WHERE triggered = TRUE GROUP BY rule_name ORDER BY cnt DESC LIMIT 10"
             )
-            
-            self.after(0, self._update_ui, c_count, t_count, a_count, case_count, crit_count, risky_rows, rules_triggered)
+            recent = self.db.fetch_all(
+                "SELECT a.transaction_id, a.customer_id, a.risk_score, a.severity, "
+                "a.status, a.created_at FROM alerts a ORDER BY a.created_at DESC LIMIT 8"
+            )
+            self.after(0, self._update_ui, c_count, t_count, a_open, a_crit, case_open,
+                       risky, rules, recent)
         except Exception as e:
             self.after(0, self._show_error, str(e))
 
-    def _update_ui(self, c_count, t_count, a_count, case_count, crit_count, risky_rows, rules_triggered) -> None:
-        self.loading_lbl.pack_forget()
-        self.content_frame.pack(fill="both", expand=True)
+    def _update_ui(self, c_count, t_count, a_open, a_crit, case_open,
+                   risky, rules, recent) -> None:
+        self._loading.pack_forget()
+        self._content.pack(fill="both", expand=True)
 
-        self.card_cust.update_value(str(c_count))
-        self.card_tx.update_value(str(t_count))
-        self.card_alert.update_value(str(a_count))
-        self.card_case.update_value(str(case_count))
-        self.card_crit.update_value(str(crit_count))
+        self._card_cust.update_value(f"{c_count:,}")
+        self._card_tx.update_value(f"{t_count:,}")
+        self._card_alert.update_value(str(a_open))
+        self._card_crit.update_value(str(a_crit))
+        self._card_case.update_value(str(case_open))
 
-        self.risky_table.clear()
-        for r in risky_rows:
-            self.risky_table.insert_row([
-                r["customer_id"],
-                r["customer_name"],
-                f"{r['current_risk_score']}/100",
-                r["risk_tier"]
+        # Risky customers
+        self._risky_table.clear()
+        for r in risky:
+            self._risky_table.insert_row([
+                r["customer_id"], r["customer_name"],
+                f"{r['current_risk_score']}/100", r["risk_tier"]
             ])
 
-        # Render Charts
-        self._render_charts(rules_triggered, crit_count, a_count)
+        # Recent events
+        self._events_table.clear()
+        for r in recent:
+            self._events_table.insert_row([
+                r["transaction_id"], r["customer_id"],
+                f"{r['risk_score']}/100", r["severity"],
+                r["status"], str(r["created_at"])[:16]
+            ])
 
-    def _show_error(self, err_msg: str) -> None:
-        self.loading_lbl.configure(text=f"Failed to load dashboard metrics: {err_msg}", fg=DANGER_COLOR)
+        self._render_charts(rules)
 
-    def _render_charts(self, rules_triggered: List[Dict[str, Any]], crit_count: int, open_alerts: int) -> None:
-        # Clear old chart frames
-        for child in self.charts_frame.winfo_children():
-            child.destroy()
+    def _render_charts(self, rules: List[Dict[str, Any]]) -> None:
+        for w in self._charts_frame.winfo_children():
+            w.destroy()
 
-        if HAS_MATPLOTLIB:
-            # Set stylesheet configs
-            fig = Figure(figsize=(5, 3.5), facecolor=BG_COLOR)
-            ax = fig.add_subplot(111)
-            ax.set_facecolor(CARD_COLOR)
-            
-            # Prepare rule metrics
-            names = [r["rule_name"][:15] + ".." if len(r["rule_name"]) > 15 else r["rule_name"] for r in rules_triggered]
-            counts = [r["cnt"] for r in rules_triggered]
-            
-            if not counts:
-                names = ["No Rules Hit"]
-                counts = [0]
-                
-            bars = ax.barh(names, counts, color=PRIMARY_COLOR, edgecolor="none", height=0.5)
+        panel = ctk.CTkFrame(self._charts_frame, fg_color=CARD_COLOR, corner_radius=12)
+        panel.pack(fill="both", expand=True)
+
+        ctk.CTkLabel(
+            panel, text="📊  Triggered Fraud Rules Frequency",
+            font=ctk.CTkFont(family=FONT_FAMILY, size=13, weight="bold"),
+            text_color=TEXT_COLOR
+        ).pack(anchor="w", padx=16, pady=(14, 4))
+
+        if HAS_MATPLOTLIB and rules:
+            fig = Figure(figsize=(6, 3.8), facecolor=CARD_COLOR, dpi=96)
+            ax  = fig.add_subplot(111)
+            ax.set_facecolor("#0F172A")
+
+            names  = [r["rule_name"][:20] + "…" if len(r["rule_name"]) > 20
+                      else r["rule_name"] for r in rules]
+            counts = [r["cnt"] for r in rules]
+
+            colors = [PRIMARY_COLOR] * len(counts)
+            if counts:
+                colors[0] = DANGER_COLOR   # Highlight most triggered
+
+            bars = ax.barh(names, counts, color=colors, edgecolor="none", height=0.55)
             ax.tick_params(colors=TEXT_COLOR, labelsize=8)
-            ax.spines['top'].set_visible(False)
-            ax.spines['right'].set_visible(False)
-            ax.spines['left'].set_color(SUBTEXT_COLOR)
-            ax.spines['bottom'].set_color(SUBTEXT_COLOR)
-            ax.set_title("Triggered Fraud Rules Frequency", color=TEXT_COLOR, fontsize=10, weight="bold")
-            
-            # Add values inside bars
+            ax.spines["top"].set_visible(False)
+            ax.spines["right"].set_visible(False)
+            ax.spines["left"].set_color("#334155")
+            ax.spines["bottom"].set_color("#334155")
+            ax.invert_yaxis()
+
             for bar in bars:
-                width = bar.get_width()
-                ax.text(width + 0.1, bar.get_y() + bar.get_height()/2, f'{int(width)}', 
-                        va='center', ha='left', color=TEXT_COLOR, fontsize=8)
+                w_val = bar.get_width()
+                if w_val > 0:
+                    ax.text(w_val + 0.2, bar.get_y() + bar.get_height() / 2,
+                            str(int(w_val)), va="center", ha="left",
+                            color=TEXT_COLOR, fontsize=8)
 
-            fig.tight_layout()
-            canvas = FigureCanvasTkAgg(fig, master=self.charts_frame)
+            fig.tight_layout(pad=1.5)
+            canvas = FigureCanvasTkAgg(fig, master=panel)
             canvas.draw()
-            canvas.get_tk_widget().pack(fill="both", expand=True)
+            canvas.get_tk_widget().configure(bg=CARD_COLOR)
+            canvas.get_tk_widget().pack(fill="both", expand=True, padx=8, pady=(0, 12))
         else:
-            # Native Canvas bar chart fallback
-            fallback_lbl = tk.Label(self.charts_frame, text="Analytics Visuals (Canvas Fallback)", bg=BG_COLOR, fg=SUBTEXT_COLOR, font=FONT_SUBHEADER)
-            fallback_lbl.pack(anchor="w", pady=(0, 10))
+            ctk.CTkLabel(
+                panel,
+                text="No rule execution data available yet.\nRun the Simulator to generate events.",
+                font=ctk.CTkFont(family=FONT_FAMILY, size=12),
+                text_color=SUBTEXT_COLOR, justify="center"
+            ).pack(pady=40)
 
-            chart_canvas = tk.Canvas(self.charts_frame, bg=CARD_COLOR, height=200, highlightthickness=0, bd=0)
-            chart_canvas.pack(fill="both", expand=True)
-
-            # Draw simple bar metrics
-            y_offset = 30
-            for idx, r in enumerate(rules_triggered or [{"rule_name": "Mock Rule Alpha", "cnt": 15}, {"rule_name": "Mock Rule Beta", "cnt": 8}]):
-                chart_canvas.create_text(15, y_offset, text=r["rule_name"][:18], fill=TEXT_COLOR, anchor="w", font=FONT_CAPTION)
-                # Draw bar
-                width = min(200, r["cnt"] * 10)
-                chart_canvas.create_rectangle(150, y_offset - 8, 150 + width, y_offset + 8, fill=PRIMARY_COLOR, outline="")
-                chart_canvas.create_text(150 + width + 10, y_offset, text=str(r["cnt"]), fill=TEXT_COLOR, anchor="w", font=FONT_CAPTION)
-                y_offset += 35
+    def _show_error(self, msg: str) -> None:
+        self._loading.configure(text=f"⚠  Failed to load dashboard: {msg}",
+                                text_color=DANGER_COLOR)

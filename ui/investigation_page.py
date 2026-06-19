@@ -1,362 +1,367 @@
-import tkinter as tk
-from tkinter import ttk
-from tkinter import messagebox
-from tkinter import simpledialog
+"""
+FinGuard UI – Investigation Page
+Full customer dossier: KYC profile, devices, metrics cards, behavior summary, timeline.
+"""
 import threading
-from typing import Dict, Any, List, Optional
+from typing import Any, Dict, List, Optional
+import customtkinter as ctk
+from tkinter import messagebox
 
-# Reusable widgets
-from ui.widgets.tables import TableWidget
-from ui.widgets.timeline import TimelineWidget
+from ui.widgets.cards        import CardWidget
+from ui.widgets.tables       import TableWidget
+from ui.widgets.timeline     import TimelineWidget
 from ui.widgets.status_badges import StatusBadge
-from ui.widgets.cards import CardWidget
+from ui.widgets.dialogs      import InputDialog
 from ui.widgets.theme import (
     BG_COLOR, CARD_COLOR, TEXT_COLOR, SUBTEXT_COLOR,
     PRIMARY_COLOR, SUCCESS_COLOR, WARNING_COLOR, DANGER_COLOR,
-    FONT_HEADER, FONT_SUBHEADER, FONT_BODY, FONT_CAPTION
+    FONT_FAMILY, format_inr
 )
-
-# Backend imports
 from services import InvestigationService, BlacklistService, WhitelistService
 from database import DatabaseConnection
 
-class InvestigationPage(ttk.Frame):
-    """
-    Customer Dossier & Investigation Page.
-    Fetches full profile metrics, whitelist/blacklist status, transaction averages,
-    known device fingerprints, and logs them to a custom vertical timeline.
-    """
+
+class InvestigationPage(ctk.CTkFrame):
+    """Customer Security Dossier & Investigation page."""
+
     def __init__(self, parent) -> None:
-        super().__init__(parent, style="TFrame")
+        super().__init__(parent, fg_color=BG_COLOR, corner_radius=0)
         self.investigation_service = InvestigationService()
-        self.blacklist_service = BlacklistService()
-        self.whitelist_service = WhitelistService()
-        self.db = DatabaseConnection()
-
-        # Header Frame
-        self.header_frame = tk.Frame(self, bg=BG_COLOR)
-        self.header_frame.pack(fill="x", pady=(10, 20))
-
-        self.title_lbl = ttk.Label(self.header_frame, text="Customer Dossier & Investigation", style="HeaderTitle.TLabel")
-        self.title_lbl.pack(side="left")
-
-        # Search Bar inside Header
-        self.search_frame = tk.Frame(self.header_frame, bg=BG_COLOR)
-        self.search_frame.pack(side="right")
-
-        self.search_entry = tk.Entry(
-            self.search_frame,
-            bg=CARD_COLOR,
-            fg=TEXT_COLOR,
-            bd=0,
-            insertbackground=TEXT_COLOR,
-            font=FONT_BODY,
-            highlightthickness=1,
-            highlightcolor=PRIMARY_COLOR,
-            highlightbackground="#334155",
-            width=25
-        )
-        self.search_entry.pack(side="left", padx=5, ipady=4)
-        self.search_entry.insert(0, "Enter Customer ID...")
-        self.search_entry.bind("<FocusIn>", self._clear_placeholder)
-        self.search_entry.bind("<FocusOut>", self._add_placeholder)
-        self.search_entry.bind("<Return>", lambda e: self.load_customer_investigation())
-
-        self.search_btn = ttk.Button(self.search_frame, text="🔍 Investigate", command=self.load_customer_investigation)
-        self.search_btn.pack(side="left", padx=5)
-
-        # Main Scrollable Area
-        self.canvas = tk.Canvas(self, bg=BG_COLOR, highlightthickness=0, bd=0)
-        self.scrollbar = ttk.Scrollbar(self, orient="vertical", command=self.canvas.yview)
-        
-        self.scroll_frame = tk.Frame(self.canvas, bg=BG_COLOR)
-        self.scroll_frame.bind(
-            "<Configure>",
-            lambda e: self.canvas.configure(scrollregion=self.canvas.bbox("all"))
-        )
-        self.canvas_win = self.canvas.create_window((0, 0), window=self.scroll_frame, anchor="nw")
-        self.canvas.configure(yscrollcommand=self.scrollbar.set)
-        self.canvas.bind("<Configure>", lambda e: self.canvas.itemconfig(self.canvas_win, width=e.width))
-        
-        self.canvas.pack(side="left", fill="both", expand=True)
-        self.scrollbar.pack(side="right", fill="y")
-
-        # Placeholder label
-        self.placeholder_lbl = tk.Label(
-            self.scroll_frame,
-            text="Provide a Customer ID at the top right to start a deep investigation profile.",
-            bg=BG_COLOR,
-            fg=SUBTEXT_COLOR,
-            font=FONT_SUBHEADER
-        )
-        self.placeholder_lbl.pack(pady=100)
-
-        # Loading Label
-        self.loading_lbl = tk.Label(
-            self.scroll_frame,
-            text="Gathering security events and assembling timeline...",
-            bg=BG_COLOR,
-            fg=SUBTEXT_COLOR,
-            font=FONT_SUBHEADER
-        )
-        # Dossier Area (Hidden by default)
-        self.dossier_frame = tk.Frame(self.scroll_frame, bg=BG_COLOR)
-
-        self.current_customer_id = None
+        self.blacklist_service     = BlacklistService()
+        self.whitelist_service     = WhitelistService()
+        self.db                    = DatabaseConnection()
+        self.current_customer_id   = None
         self.current_customer_data = None
 
-    def _clear_placeholder(self, event) -> None:
-        if self.search_entry.get() == "Enter Customer ID...":
-            self.search_entry.delete(0, tk.END)
+        # ── Header with search ────────────────────────────────────────────
+        hdr = ctk.CTkFrame(self, fg_color="transparent", height=52)
+        hdr.pack(fill="x", padx=24, pady=(20, 0))
+        hdr.pack_propagate(False)
 
-    def _add_placeholder(self, event) -> None:
-        if not self.search_entry.get().strip():
-            self.search_entry.insert(0, "Enter Customer ID...")
+        ctk.CTkLabel(hdr, text="Customer Security Dossier",
+                     font=ctk.CTkFont(family=FONT_FAMILY, size=20, weight="bold"),
+                     text_color=TEXT_COLOR).pack(side="left")
+
+        # Search cluster
+        srch = ctk.CTkFrame(hdr, fg_color="transparent")
+        srch.pack(side="right")
+
+        self._id_entry = ctk.CTkEntry(
+            srch, placeholder_text="Customer ID…",
+            fg_color=CARD_COLOR, border_color="#334155",
+            text_color=TEXT_COLOR, placeholder_text_color=SUBTEXT_COLOR,
+            font=ctk.CTkFont(family=FONT_FAMILY, size=12),
+            width=160, height=34, corner_radius=8
+        )
+        self._id_entry.pack(side="left", padx=(0, 8))
+        self._id_entry.bind("<Return>", lambda e: self.load_customer_investigation())
+
+        self._search_btn = ctk.CTkButton(
+            srch, text="🔍  Investigate",
+            width=140, height=34, corner_radius=8,
+            fg_color=PRIMARY_COLOR, hover_color="#1D4ED8",
+            text_color=TEXT_COLOR,
+            font=ctk.CTkFont(family=FONT_FAMILY, size=12, weight="bold"),
+            command=self.load_customer_investigation
+        )
+        self._search_btn.pack(side="left")
+
+        # ── Scroll body ───────────────────────────────────────────────────
+        self._scroll = ctk.CTkScrollableFrame(
+            self, fg_color="transparent",
+            scrollbar_fg_color=BG_COLOR, scrollbar_button_color="#334155"
+        )
+        self._scroll.pack(fill="both", expand=True, padx=24, pady=12)
+
+        self._placeholder = ctk.CTkFrame(self._scroll, fg_color="transparent")
+        self._placeholder.pack(fill="both", expand=True, pady=120)
+
+        icon_lbl = ctk.CTkLabel(
+            self._placeholder, text="🔍",
+            font=ctk.CTkFont(family=FONT_FAMILY, size=64),
+            text_color=SUBTEXT_COLOR
+        )
+        icon_lbl.pack(pady=(0, 16))
+
+        msg_lbl = ctk.CTkLabel(
+            self._placeholder,
+            text="No Customer Selected",
+            font=ctk.CTkFont(family=FONT_FAMILY, size=16, weight="bold"),
+            text_color=TEXT_COLOR, justify="center"
+        )
+        msg_lbl.pack()
+
+        sub_msg_lbl = ctk.CTkLabel(
+            self._placeholder,
+            text="Enter a Customer ID in the search bar above\nto retrieve their KYC details, risk profile, and transaction timeline.",
+            font=ctk.CTkFont(family=FONT_FAMILY, size=12),
+            text_color=SUBTEXT_COLOR, justify="center"
+        )
+        sub_msg_lbl.pack(pady=(4, 0))
+
+        self._loading = ctk.CTkLabel(
+            self._scroll, text="⏳  Assembling security dossier…",
+            font=ctk.CTkFont(family=FONT_FAMILY, size=13), text_color=SUBTEXT_COLOR)
+
+        self._dossier = ctk.CTkFrame(self._scroll, fg_color="transparent")
+
+    # ── Public entry point ────────────────────────────────────────────────
 
     def load_customer(self, customer_id: int) -> None:
-        """
-        Public method to trigger loading a specific customer dossier directly.
-        """
-        self.search_entry.delete(0, tk.END)
-        self.search_entry.insert(0, str(customer_id))
+        """Called externally to load a specific customer."""
+        self._id_entry.delete(0, "end")
+        self._id_entry.insert(0, str(customer_id))
         self.load_customer_investigation()
 
     def load_customer_investigation(self) -> None:
-        raw_val = self.search_entry.get().strip()
-        if not raw_val or raw_val == "Enter Customer ID...":
-            messagebox.showwarning("Input Required", "Please enter a valid Customer ID.")
+        raw = self._id_entry.get().strip()
+        if not raw:
+            messagebox.showwarning("Required", "Enter a Customer ID.")
             return
-
         try:
-            customer_id = int(raw_val)
+            cid = int(raw)
         except ValueError:
-            messagebox.showerror("Invalid ID", "Customer ID must be a numeric integer.")
+            messagebox.showerror("Invalid", "Customer ID must be an integer.")
             return
 
-        # Show loading indicator, hide dossier & placeholder
-        self.placeholder_lbl.pack_forget()
-        self.dossier_frame.pack_forget()
-        self.loading_lbl.pack(pady=100)
-        
-        self.current_customer_id = customer_id
-        threading.Thread(target=self._fetch_investigation_worker, args=(customer_id,), daemon=True).start()
+        self._placeholder.pack_forget()
+        self._dossier.pack_forget()
+        self._loading.pack(pady=60)
+        self._search_btn.configure(state="disabled", text="Loading…")
 
-    def _fetch_investigation_worker(self, customer_id: int) -> None:
+        self.current_customer_id = cid
+        threading.Thread(target=self._fetch_worker, args=(cid,), daemon=True).start()
+
+    def _fetch_worker(self, cid: int) -> None:
         try:
-            dossier = self.investigation_service.investigate_customer(customer_id)
-            
-            # Query Whitelist/Blacklist custom status
-            is_bl, bl_reason = self.blacklist_service.check_blacklist(customer_id=customer_id)
-            is_wl, wl_reason = self.whitelist_service.check_whitelist(customer_id=customer_id)
-            
-            dossier["blacklist_status"] = {"blacklisted": is_bl, "reason": bl_reason}
-            dossier["whitelist_status"] = {"whitelisted": is_wl, "reason": wl_reason}
-
+            dossier = self.investigation_service.investigate_customer(cid)
+            is_bl, bl_r = self.blacklist_service.check_blacklist(customer_id=cid)
+            is_wl, wl_r = self.whitelist_service.check_whitelist(customer_id=cid)
+            dossier["blacklist_status"] = {"blacklisted": is_bl, "reason": bl_r}
+            dossier["whitelist_status"] = {"whitelisted": is_wl, "reason": wl_r}
             self.after(0, self._render_dossier, dossier)
         except Exception as e:
             self.after(0, self._show_error, str(e))
 
-    def _show_error(self, err_msg: str) -> None:
-        self.loading_lbl.pack_forget()
-        self.placeholder_lbl.configure(text=f"Error compiling dossier: {err_msg}", fg=DANGER_COLOR)
-        self.placeholder_lbl.pack(pady=100)
+    def _show_error(self, msg: str) -> None:
+        self._loading.pack_forget()
+        self._search_btn.configure(state="normal", text="🔍  Investigate")
+        messagebox.showerror("Investigation Failed", msg)
+        self._placeholder.pack(fill="both", expand=True, pady=120)
 
-    def _render_dossier(self, dossier: Dict[str, Any]) -> None:
-        self.loading_lbl.pack_forget()
+    def _render_dossier(self, dossier: Dict) -> None:
+        self._loading.pack_forget()
+        self._search_btn.configure(state="normal", text="🔍  Investigate")
         self.current_customer_data = dossier
 
-        # Clear old content
-        for child in self.dossier_frame.winfo_children():
-            child.destroy()
+        for w in self._dossier.winfo_children():
+            w.destroy()
+        self._dossier.pack(fill="both", expand=True)
 
-        self.dossier_frame.pack(fill="both", expand=True)
+        # 2-column split
+        split = ctk.CTkFrame(self._dossier, fg_color="transparent")
+        split.pack(fill="both", expand=True)
+        split.columnconfigure(0, weight=3)
+        split.columnconfigure(1, weight=2)
 
-        # 2-column layout (Split Frame)
-        split_frame = tk.Frame(self.dossier_frame, bg=BG_COLOR)
-        split_frame.pack(fill="both", expand=True)
-        split_frame.columnconfigure(0, weight=3) # Left (KYC + Devices)
-        split_frame.columnconfigure(1, weight=2) # Right (Metrics + Summary + Timeline)
+        left = ctk.CTkFrame(split, fg_color="transparent")
+        left.grid(row=0, column=0, sticky="nsew", padx=(0, 8))
 
-        # --- LEFT COLUMN ---
-        left_col = tk.Frame(split_frame, bg=BG_COLOR)
-        left_col.grid(row=0, column=0, sticky="nsew", padx=(0, 10))
+        right = ctk.CTkFrame(split, fg_color="transparent")
+        right.grid(row=0, column=1, sticky="nsew", padx=(8, 0))
 
-        # 1. Profile Info Card
-        profile_card = tk.Frame(left_col, bg=CARD_COLOR, padx=16, pady=16)
-        profile_card.pack(fill="x", pady=(0, 15))
+        self._build_profile_card(left, dossier)
+        self._build_devices_card(left, dossier)
+        self._build_metrics_row(right, dossier)
+        self._build_behavior_card(right, dossier)
+        self._build_timeline_card(right, dossier)
 
+    def _build_profile_card(self, parent, dossier: Dict) -> None:
         profile = dossier["customer_profile"]
-        risk_profile = dossier["risk_profile"] or {}
-        
-        name_lbl = tk.Label(profile_card, text=f"{profile['first_name']} {profile['last_name']}", bg=CARD_COLOR, fg=TEXT_COLOR, font=FONT_HEADER)
-        name_lbl.pack(anchor="w", pady=(0, 10))
+        rp      = dossier.get("risk_profile") or {}
 
-        badge_frame = tk.Frame(profile_card, bg=CARD_COLOR)
-        badge_frame.pack(anchor="w", pady=(0, 15))
+        card = ctk.CTkFrame(parent, fg_color=CARD_COLOR, corner_radius=12)
+        card.pack(fill="x", pady=(0, 12))
 
-        status_badge = StatusBadge(badge_frame, profile["status"])
-        status_badge.pack(side="left")
+        # Avatar
+        av_row = ctk.CTkFrame(card, fg_color="transparent")
+        av_row.pack(fill="x", padx=16, pady=(14, 0))
 
-        # Custom tag badges for Whitelisted / Blacklisted
-        if dossier["blacklist_status"]["blacklisted"]:
-            bl_tag = tk.Label(badge_frame, text="BLACKLISTED", bg=DANGER_COLOR, fg=TEXT_COLOR, font=FONT_CAPTION, padx=6, pady=2)
-            bl_tag.pack(side="left", padx=(10, 0))
-        elif dossier["whitelist_status"]["whitelisted"]:
-            wl_tag = tk.Label(badge_frame, text="WHITELISTS MATCH", bg=SUCCESS_COLOR, fg=TEXT_COLOR, font=FONT_CAPTION, padx=6, pady=2)
-            wl_tag.pack(side="left", padx=(10, 0))
-
-        details = [
-            ("Customer ID", profile["customer_id"]),
-            ("Email", profile["email"]),
-            ("Phone", profile["phone"] or "N/A"),
-            ("PAN", profile["pan"] or "N/A"),
-            ("Account Number", profile["account_number"] or "N/A"),
-            ("Pincode", profile["pincode"] or "N/A"),
-            ("City", profile["city"] or "N/A"),
-            ("State", profile["state"] or "N/A"),
-            ("Country", profile["country"] or "N/A"),
-            ("Risk Level", f"{risk_profile.get('risk_tier', 'LOW')} (Score: {risk_profile.get('current_risk_score', 0)}/100)"),
-        ]
-
-        for label, val in details:
-            row = tk.Frame(profile_card, bg=CARD_COLOR, pady=3)
-            row.pack(fill="x")
-            lbl_key = tk.Label(row, text=f"{label}:", bg=CARD_COLOR, fg=SUBTEXT_COLOR, font=FONT_CAPTION, width=15, anchor="w")
-            lbl_key.pack(side="left")
-            lbl_val = tk.Label(row, text=str(val), bg=CARD_COLOR, fg=TEXT_COLOR, font=FONT_BODY, anchor="w")
-            lbl_val.pack(side="left", fill="x", expand=True)
-
-        # Action Buttons inside Profile
-        act_row = tk.Frame(profile_card, bg=CARD_COLOR, pady=(15, 0))
-        act_row.pack(fill="x")
-
-        # Disable buttons depending on status
-        if not dossier["blacklist_status"]["blacklisted"]:
-            bl_btn = ttk.Button(act_row, text="🚫 Blacklist", style="Danger.TButton", command=self._blacklist_customer)
-            bl_btn.pack(side="left", padx=(0, 10))
-        else:
-            bl_info_lbl = tk.Label(act_row, text=f"Block reason: {dossier['blacklist_status']['reason']}", bg=CARD_COLOR, fg=DANGER_COLOR, font=FONT_CAPTION, wraplength=200, justify="left")
-            bl_info_lbl.pack(side="left", padx=(0, 10))
-
-        if not dossier["whitelist_status"]["whitelisted"] and not dossier["blacklist_status"]["blacklisted"]:
-            wl_btn = ttk.Button(act_row, text="⭐ Whitelist", style="Success.TButton", command=self._whitelist_customer)
-            wl_btn.pack(side="left")
-        elif dossier["whitelist_status"]["whitelisted"]:
-            wl_info_lbl = tk.Label(act_row, text=f"Whitelist justification: {dossier['whitelist_status']['reason']}", bg=CARD_COLOR, fg=SUCCESS_COLOR, font=FONT_CAPTION, wraplength=200, justify="left")
-            wl_info_lbl.pack(side="left")
-
-        # 2. Associated Devices Card
-        devices_card = tk.Frame(left_col, bg=CARD_COLOR, padx=16, pady=16)
-        devices_card.pack(fill="both", expand=True)
-
-        dev_lbl = tk.Label(devices_card, text="Associated Device Fingerprints", bg=CARD_COLOR, fg=TEXT_COLOR, font=FONT_HEADER)
-        dev_lbl.pack(anchor="w", pady=(0, 10))
-
-        self.device_table = TableWidget(
-            devices_card,
-            columns=["fingerprint", "ip_address", "operating_system", "last_seen"],
-            headers=["Fingerprint", "IP Address", "OS", "Last Seen"]
+        av = ctk.CTkLabel(
+            av_row,
+            text=f"{profile['first_name'][0]}{profile['last_name'][0]}".upper(),
+            width=52, height=52, corner_radius=26,
+            fg_color=PRIMARY_COLOR, text_color=TEXT_COLOR,
+            font=ctk.CTkFont(family=FONT_FAMILY, size=18, weight="bold")
         )
-        self.device_table.pack(fill="both", expand=True)
+        av.pack(side="left", padx=(0, 14))
 
-        for dev in dossier["devices_used"]:
-            fp = dev["device_fingerprint"]
-            short_fp = fp[:12] + "..." if len(fp) > 12 else fp
-            self.device_table.insert_row([
-                short_fp,
-                dev["ip_address"],
-                dev["operating_system"] or "Unknown",
-                dev["last_seen"][:16] if dev["last_seen"] else "N/A"
+        name_col = ctk.CTkFrame(av_row, fg_color="transparent")
+        name_col.pack(side="left")
+
+        ctk.CTkLabel(name_col,
+                     text=f"{profile['first_name']} {profile['last_name']}",
+                     font=ctk.CTkFont(family=FONT_FAMILY, size=15, weight="bold"),
+                     text_color=TEXT_COLOR).pack(anchor="w")
+
+        badge_row = ctk.CTkFrame(name_col, fg_color="transparent")
+        badge_row.pack(anchor="w", pady=(4, 0))
+        StatusBadge(badge_row, profile["status"]).pack(side="left", padx=(0, 6))
+
+        if dossier["blacklist_status"]["blacklisted"]:
+            ctk.CTkLabel(badge_row, text="  BLACKLISTED  ",
+                         fg_color=DANGER_COLOR, text_color=TEXT_COLOR,
+                         font=ctk.CTkFont(family=FONT_FAMILY, size=9, weight="bold"),
+                         corner_radius=4).pack(side="left")
+        elif dossier["whitelist_status"]["whitelisted"]:
+            ctk.CTkLabel(badge_row, text="  WHITELISTED  ",
+                         fg_color=SUCCESS_COLOR, text_color=TEXT_COLOR,
+                         font=ctk.CTkFont(family=FONT_FAMILY, size=9, weight="bold"),
+                         corner_radius=4).pack(side="left")
+
+        ctk.CTkFrame(card, fg_color="#2D3748", height=1).pack(fill="x", padx=16, pady=12)
+
+        fields = [
+            ("Customer ID", profile["customer_id"]),
+            ("📧 Email",    profile["email"]),
+            ("📱 Phone",    profile.get("phone") or "—"),
+            ("🪪 PAN",      profile.get("pan") or "—"),
+            ("🏦 Account",  profile.get("account_number") or "—"),
+            ("🏙 City",     profile.get("city") or "—"),
+            ("🌍 Country",  profile.get("country") or "—"),
+            ("⚠ Risk",     f"{rp.get('risk_tier','LOW')} ({rp.get('current_risk_score',0)}/100)"),
+        ]
+        for label, val in fields:
+            row = ctk.CTkFrame(card, fg_color="transparent", height=26)
+            row.pack(fill="x", padx=16, pady=1)
+            ctk.CTkLabel(row, text=f"{label}:", text_color=SUBTEXT_COLOR,
+                         font=ctk.CTkFont(family=FONT_FAMILY, size=10),
+                         width=100, anchor="w").pack(side="left")
+            ctk.CTkLabel(row, text=str(val), text_color=TEXT_COLOR,
+                         font=ctk.CTkFont(family=FONT_FAMILY, size=10),
+                         anchor="w").pack(side="left", fill="x", expand=True)
+
+        # Action buttons
+        act = ctk.CTkFrame(card, fg_color="transparent")
+        act.pack(fill="x", padx=16, pady=(10, 14))
+
+        if not dossier["blacklist_status"]["blacklisted"]:
+            ctk.CTkButton(act, text="🚫  Blacklist", width=100, height=30,
+                          corner_radius=8, fg_color=DANGER_COLOR, hover_color="#DC2626",
+                          text_color=TEXT_COLOR,
+                          font=ctk.CTkFont(family=FONT_FAMILY, size=11),
+                          command=self._blacklist_customer).pack(side="left", padx=(0, 8))
+
+        if (not dossier["whitelist_status"]["whitelisted"] and
+                not dossier["blacklist_status"]["blacklisted"]):
+            ctk.CTkButton(act, text="⭐  Whitelist", width=100, height=30,
+                          corner_radius=8, fg_color=SUCCESS_COLOR, hover_color="#059669",
+                          text_color=TEXT_COLOR,
+                          font=ctk.CTkFont(family=FONT_FAMILY, size=11),
+                          command=self._whitelist_customer).pack(side="left")
+
+    def _build_devices_card(self, parent, dossier: Dict) -> None:
+        card = ctk.CTkFrame(parent, fg_color=CARD_COLOR, corner_radius=12)
+        card.pack(fill="both", expand=True, pady=(0, 0))
+
+        ctk.CTkLabel(card, text="🖥  Associated Device Fingerprints",
+                     font=ctk.CTkFont(family=FONT_FAMILY, size=13, weight="bold"),
+                     text_color=TEXT_COLOR).pack(anchor="w", padx=16, pady=(14, 4))
+
+        tbl = TableWidget(card,
+                          columns=["fingerprint","ip_address","operating_system","last_seen"],
+                          headers=["Fingerprint","IP Address","OS","Last Seen"])
+        tbl.pack(fill="both", expand=True, padx=8, pady=(0, 12))
+
+        for dev in dossier.get("devices_used", []):
+            fp = dev.get("device_fingerprint","")
+            tbl.insert_row([
+                fp[:14] + "…" if len(fp) > 14 else fp,
+                dev.get("ip_address","—"),
+                dev.get("operating_system") or "Unknown",
+                str(dev.get("last_seen",""))[:16]
             ])
 
-        # --- RIGHT COLUMN ---
-        right_col = tk.Frame(split_frame, bg=BG_COLOR)
-        right_col.grid(row=0, column=1, sticky="nsew", padx=(10, 0))
+    def _build_metrics_row(self, parent, dossier: Dict) -> None:
+        grid = ctk.CTkFrame(parent, fg_color="transparent")
+        grid.pack(fill="x", pady=(0, 12))
+        grid.columnconfigure((0, 1), weight=1)
 
-        # 1. 2x2 Metrics Cards
-        metrics_frame = tk.Frame(right_col, bg=BG_COLOR)
-        metrics_frame.pack(fill="x", pady=(0, 15))
-        metrics_frame.columnconfigure((0, 1), weight=1, uniform="group2")
+        trust   = dossier.get("trust_score", 0)
+        frauds  = dossier.get("fraud_attempts", 0)
+        avg_amt = dossier.get("average_amount", 0) or 0
+        city    = dossier.get("most_frequent_city") or "—"
 
-        # Row 0
-        trust_card = CardWidget(metrics_frame, "TRUST SCORE", f"{dossier['trust_score']}/100", "Overall reliability rating", trend_color=SUCCESS_COLOR if dossier['trust_score'] >= 70 else WARNING_COLOR)
-        trust_card.grid(row=0, column=0, padx=4, pady=4, sticky="nsew")
+        trust_c   = SUCCESS_COLOR if trust >= 70 else WARNING_COLOR
+        fraud_c   = DANGER_COLOR  if frauds > 0 else SUCCESS_COLOR
 
-        attempts_card = CardWidget(metrics_frame, "FRAUD ATTEMPTS", str(dossier['fraud_attempts']), "Flagged events in database", trend_color=DANGER_COLOR if dossier['fraud_attempts'] > 0 else SUCCESS_COLOR)
-        attempts_card.grid(row=0, column=1, padx=4, pady=4, sticky="nsew")
+        CardWidget(grid, "Trust Score",     f"{trust}/100",   "Overall reliability", trust_c
+                   ).grid(row=0, column=0, sticky="nsew", padx=(0, 4), pady=4)
+        CardWidget(grid, "Fraud Attempts",  str(frauds),      "Flagged events", fraud_c
+                   ).grid(row=0, column=1, sticky="nsew", padx=(4, 0), pady=4)
+        CardWidget(grid, "Average Transaction Value", format_inr(avg_amt),"Mean spending", PRIMARY_COLOR
+                   ).grid(row=1, column=0, sticky="nsew", padx=(0, 4), pady=4)
+        CardWidget(grid, "Frequent City",   city,             "Top geo location", PRIMARY_COLOR
+                   ).grid(row=1, column=1, sticky="nsew", padx=(4, 0), pady=4)
 
-        # Row 1
-        avg_amt_val = f"${dossier['average_amount']:,.2f}" if dossier['average_amount'] else "$0.00"
-        avg_amt_card = CardWidget(metrics_frame, "AVG TX AMOUNT", avg_amt_val, "Mean spending scale")
-        avg_amt_card.grid(row=1, column=0, padx=4, pady=4, sticky="nsew")
+    def _build_behavior_card(self, parent, dossier: Dict) -> None:
+        card = ctk.CTkFrame(parent, fg_color=CARD_COLOR, corner_radius=12)
+        card.pack(fill="x", pady=(0, 12))
 
-        city_card = CardWidget(metrics_frame, "FREQUENT CITY", dossier['most_frequent_city'] or "N/A", "Top geo location")
-        city_card.grid(row=1, column=1, padx=4, pady=4, sticky="nsew")
+        ctk.CTkLabel(card, text="🧠  Behavior Summary",
+                     font=ctk.CTkFont(family=FONT_FAMILY, size=13, weight="bold"),
+                     text_color=TEXT_COLOR).pack(anchor="w", padx=16, pady=(14, 4))
 
-        # 2. Behavior Summary Card
-        summary_card = tk.Frame(right_col, bg=CARD_COLOR, padx=16, pady=16)
-        summary_card.pack(fill="x", pady=(0, 15))
+        ctk.CTkLabel(card,
+                     text=dossier.get("behaviour_summary") or "No behavioral data available.",
+                     font=ctk.CTkFont(family=FONT_FAMILY, size=11),
+                     text_color=TEXT_COLOR, justify="left",
+                     wraplength=320).pack(anchor="w", padx=16, pady=(0, 14))
 
-        sum_lbl = tk.Label(summary_card, text="Behavior Summary Diagnostics", bg=CARD_COLOR, fg=TEXT_COLOR, font=FONT_HEADER)
-        sum_lbl.pack(anchor="w", pady=(0, 10))
+    def _build_timeline_card(self, parent, dossier: Dict) -> None:
+        card = ctk.CTkFrame(parent, fg_color=CARD_COLOR, corner_radius=12)
+        card.pack(fill="both", expand=True)
 
-        sum_body = tk.Label(
-            summary_card,
-            text=dossier["behaviour_summary"] or "No transactional metrics exist to compute behavioral patterns.",
-            bg=CARD_COLOR,
-            fg=TEXT_COLOR,
-            font=FONT_BODY,
-            justify="left",
-            wraplength=350
-        )
-        sum_body.pack(anchor="w")
+        ctk.CTkLabel(card, text="⏱  Security Audit Timeline",
+                     font=ctk.CTkFont(family=FONT_FAMILY, size=13, weight="bold"),
+                     text_color=TEXT_COLOR).pack(anchor="w", padx=16, pady=(14, 4))
 
-        # 3. Timeline Events Card
-        timeline_card = tk.Frame(right_col, bg=CARD_COLOR, padx=16, pady=16)
-        timeline_card.pack(fill="both", expand=True)
+        timeline = TimelineWidget(card)
+        timeline.pack(fill="both", expand=True, padx=8, pady=(0, 12))
 
-        time_header_lbl = tk.Label(timeline_card, text="Security Audit Timeline", bg=CARD_COLOR, fg=TEXT_COLOR, font=FONT_HEADER)
-        time_header_lbl.pack(anchor="w", pady=(0, 10))
-
-        self.timeline_widget = TimelineWidget(timeline_card)
-        self.timeline_widget.pack(fill="both", expand=True)
-
-        # Parse timeline string items
-        formatted_events = []
-        for item in dossier["timeline"]:
-            parts = item.split(" ", 2)
+        events = []
+        for item in dossier.get("timeline", []):
+            parts = str(item).split(" ", 2)
             if len(parts) >= 3:
-                time_part = f"{parts[0]} {parts[1]}"
-                title_part = parts[2]
+                events.append({"time": f"{parts[0]} {parts[1]}", "title": parts[2], "details": ""})
             else:
-                time_part = ""
-                title_part = item
-            formatted_events.append({
-                "time": time_part,
-                "title": title_part,
-                "details": ""
-            })
+                events.append({"time": "", "title": str(item), "details": ""})
+        timeline.set_events(events)
 
-        self.timeline_widget.set_events(formatted_events)
+    # ── Actions ───────────────────────────────────────────────────────────
 
     def _blacklist_customer(self) -> None:
-        reason = simpledialog.askstring("Blacklist Customer", f"Reason for blacklisting Customer ID #{self.current_customer_id}:")
-        if reason:
-            try:
-                self.blacklist_service.blacklist_customer(self.current_customer_id, reason)
-                messagebox.showinfo("Blacklisted", f"Customer #{self.current_customer_id} has been blocked.")
-                # Reload dossier
-                self.load_customer_investigation()
-            except Exception as e:
-                messagebox.showerror("Error", f"Failed to blacklist customer: {e}")
+        InputDialog(self, "Blacklist Customer",
+                    f"Reason for blacklisting Customer #{self.current_customer_id}:",
+                    submit_callback=self._do_blacklist)
+
+    def _do_blacklist(self, reason: str) -> None:
+        try:
+            self.blacklist_service.blacklist_customer(self.current_customer_id, reason)
+            messagebox.showinfo("Blacklisted", f"Customer #{self.current_customer_id} blocked.")
+            self.load_customer_investigation()
+        except Exception as e:
+            messagebox.showerror("Error", str(e))
 
     def _whitelist_customer(self) -> None:
-        reason = simpledialog.askstring("Whitelist Justification", f"Justification for whitelisting Customer ID #{self.current_customer_id}:")
-        if reason:
-            try:
-                self.whitelist_service.whitelist_customer(self.current_customer_id, reason)
-                messagebox.showinfo("Whitelisted", f"Customer #{self.current_customer_id} whitelisted successfully.")
-                # Reload dossier
-                self.load_customer_investigation()
-            except Exception as e:
-                messagebox.showerror("Error", f"Failed to whitelist customer: {e}")
+        InputDialog(self, "Whitelist Customer",
+                    f"Justification for whitelisting Customer #{self.current_customer_id}:",
+                    submit_callback=self._do_whitelist)
+
+    def _do_whitelist(self, reason: str) -> None:
+        try:
+            self.whitelist_service.whitelist_customer(self.current_customer_id, reason)
+            messagebox.showinfo("Whitelisted", f"Customer #{self.current_customer_id} whitelisted.")
+            self.load_customer_investigation()
+        except Exception as e:
+            messagebox.showerror("Error", str(e))

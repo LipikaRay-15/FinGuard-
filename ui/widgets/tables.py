@@ -1,108 +1,139 @@
 import tkinter as tk
 from tkinter import ttk
-from typing import Any, List, Dict
-from ui.widgets.theme import CARD_COLOR, SIDEBAR_COLOR, TEXT_COLOR, SUBTEXT_COLOR, PRIMARY_COLOR
+import customtkinter as ctk
+from typing import Any, Callable, List, Optional
 
-class TableWidget(ttk.Frame):
+from ui.widgets.theme import (
+    CARD_COLOR, BG_COLOR, TEXT_COLOR, SUBTEXT_COLOR,
+    PRIMARY_COLOR, FONT_BODY, FONT_SUBHEADER
+)
+
+
+class TableWidget(ctk.CTkFrame):
     """
-    A premium scrollable grid table widget wrapping ttk.Treeview.
-    Supports column sorting, custom scrollbars, and alternating row colors.
+    A production-quality dark-themed table widget.
+    Wraps ttk.Treeview (dark-styled) inside a CTkFrame with styled scrollbars.
     """
-    def __init__(self, parent, columns: List[str], headers: List[str], **kwargs) -> None:
-        super().__init__(parent, style="TFrame", **kwargs)
-        
-        self.columns = columns
-        self.headers = headers
-        self.sort_states: Dict[str, bool] = {col: False for col in columns}
 
-        # Grid container
-        self.grid_rowconfigure(0, weight=1)
-        self.grid_columnconfigure(0, weight=1)
+    def __init__(self, parent, columns: List[str], headers: List[str],
+                 row_height: int = 36, **kwargs):
+        super().__init__(parent, fg_color="transparent", corner_radius=10, **kwargs)
 
-        # Scrollbars
-        self.vsb = ttk.Scrollbar(self, orient="vertical")
-        self.vsb.grid(row=0, column=1, sticky="ns")
+        self._select_callback: Optional[Callable] = None
+        self._dbl_callback: Optional[Callable] = None
+        self._columns = columns
+        self._item_id_map = {}
 
-        self.hsb = ttk.Scrollbar(self, orient="horizontal")
-        self.hsb.grid(row=1, column=0, sticky="ew")
+        # Outer border frame
+        border = ctk.CTkFrame(self, fg_color="#1E293B", corner_radius=10, border_width=1, border_color="#2D3748")
+        border.pack(fill="both", expand=True)
 
-        # Treeview
-        self.tree = ttk.Treeview(
-            self,
+        # Treeview + scrollbars container (using grid for exact alignments)
+        tree_frame = tk.Frame(border, bg=CARD_COLOR)
+        tree_frame.pack(fill="both", expand=True, padx=1, pady=1)
+        tree_frame.columnconfigure(0, weight=1)
+        tree_frame.rowconfigure(0, weight=1)
+
+        self._tree = ttk.Treeview(
+            tree_frame,
             columns=columns,
             show="headings",
-            yscrollcommand=self.vsb.set,
-            xscrollcommand=self.hsb.set,
+            style="Dark.Treeview",
             selectmode="browse"
         )
-        self.tree.grid(row=0, column=0, sticky="nsew")
 
-        self.vsb.configure(command=self.tree.yview)
-        self.hsb.configure(command=self.tree.xview)
+        # Map common fields to proportional widths
+        width_map = {
+            "customer_id": 80,
+            "cust_id": 80,
+            "tx_id": 100,
+            "first_name": 120,
+            "last_name": 120,
+            "name": 160,
+            "email": 220,
+            "phone": 140,
+            "status": 100,
+            "amount": 120,
+            "merchant": 160,
+            "type": 120,
+            "time": 160,
+            "score": 100,
+            "tier": 100
+        }
 
-        # Setup column headers and sorting hooks
-        for col, head in zip(columns, headers):
-            self.tree.heading(col, text=head, command=lambda c=col: self._sort_column(c))
-            self.tree.column(col, anchor="w", width=120)
+        # Configure columns and headers using native Treeview mechanism
+        for i, col in enumerate(columns):
+            heading_text = headers[i] if i < len(headers) else col
+            self._tree.heading(col, text=heading_text, anchor="w")
+            
+            col_width = width_map.get(col.lower(), 120)
+            self._tree.column(col, anchor="w", width=col_width, minwidth=70, stretch=True)
 
-        # Alternating row colors styling tags
-        self.tree.tag_configure("even", background="#1E293B")
-        self.tree.tag_configure("odd", background="#151F32")
-
-    def _sort_column(self, col: str) -> None:
-        """
-        Sorts the Treeview rows by a specific column ascending or descending.
-        """
-        reverse = self.sort_states[col]
-        self.sort_states[col] = not reverse
-
-        # Read items
-        data = [(self.tree.set(child, col), child) for child in self.tree.get_children("")]
+        # Scrollbars configured via Grid to prevent overlaps and alignment issues
+        yscroll = ttk.Scrollbar(tree_frame, orient="vertical",
+                                command=self._tree.yview, style="Dark.Vertical.TScrollbar")
+        xscroll = ttk.Scrollbar(tree_frame, orient="horizontal",
+                                command=self._tree.xview, style="Dark.Horizontal.TScrollbar")
         
-        # Try sorting as numbers if conversion is clean
-        try:
-            data.sort(key=lambda t: float(str(t[0]).replace("$", "").replace("%", "").strip()), reverse=reverse)
-        except ValueError:
-            data.sort(reverse=reverse)
+        self._tree.configure(yscrollcommand=yscroll.set, xscrollcommand=xscroll.set)
 
-        # Re-pack rows in sorted order
-        for idx, (val, child) in enumerate(data):
-            self.tree.move(child, "", idx)
-            # Re-apply alternating tags
-            tag = "even" if idx % 2 == 0 else "odd"
-            self.tree.item(child, tags=(tag,))
+        # Grid placement
+        self._tree.grid(row=0, column=0, sticky="nsew")
+        yscroll.grid(row=0, column=1, sticky="ns")
+        xscroll.grid(row=1, column=0, sticky="ew")
+
+        # Tag configuration for alternating rows
+        self._tree.tag_configure("odd",  background=CARD_COLOR)
+        self._tree.tag_configure("even", background="#172033")
+
+        self._tree.bind("<<TreeviewSelect>>", self._on_select)
+        self._tree.bind("<Double-1>", self._on_double_click)
+
+        self._row_count = 0
+
+    # ── Public API ────────────────────────────────────────────────────────────
 
     def clear(self) -> None:
-        """
-        Removes all rows.
-        """
-        for child in self.tree.get_children():
-            self.tree.delete(child)
+        """Remove all rows."""
+        for item in self._tree.get_children():
+            self._tree.delete(item)
+        self._item_id_map.clear()
+        self._row_count = 0
 
-    def insert_row(self, values: List[Any], item_id: Any = None) -> str:
-        """
-        Inserts a row into the grid table.
-        """
-        idx = len(self.tree.get_children())
-        tag = "even" if idx % 2 == 0 else "odd"
-        
-        row_id = self.tree.insert("", "end", iid=item_id, values=values, tags=(tag,))
-        return row_id
+    def insert_row(self, values: List[Any], item_id: Any = None) -> None:
+        """Insert a single row. item_id is the custom logical ID (e.g., DB primary key)."""
+        tag = "even" if self._row_count % 2 == 0 else "odd"
+        str_values = [str(v) if v is not None else "" for v in values]
+        iid = self._tree.insert("", "end", values=str_values, tags=(tag,))
+        if item_id is not None:
+            self._item_id_map[iid] = item_id
+        self._row_count += 1
 
-    def get_selected_item(self) -> Any:
-        """
-        Returns the ID or values of the currently selected row.
-        """
-        sel = self.tree.selection()
+    def bind_select(self, callback: Callable[[Any], None]) -> None:
+        """Register a callback fired with the selected item_id."""
+        self._select_callback = callback
+
+    def bind_double_click(self, callback: Callable[[Any], None]) -> None:
+        """Register a callback fired on double-click with the selected item_id."""
+        self._dbl_callback = callback
+
+    def get_selected_id(self) -> Optional[Any]:
+        sel = self._tree.selection()
         if not sel:
             return None
-        return sel[0]
+        iid = sel[0]
+        return self._item_id_map.get(iid, iid)
 
-    def get_row_values(self, item_id: str) -> List[Any]:
-        return self.tree.item(item_id, "values")
+    # ── Internal Handlers ────────────────────────────────────────────────────
 
-    def bind_double_click(self, callback) -> None:
-        self.tree.bind("<Double-1>", lambda event: callback(self.get_selected_item()))
+    def _on_select(self, event) -> None:
+        if self._select_callback:
+            item_id = self.get_selected_id()
+            if item_id is not None:
+                self._select_callback(item_id)
 
-    def bind_select(self, callback) -> None:
-        self.tree.bind("<<TreeviewSelect>>", lambda event: callback(self.get_selected_item()))
+    def _on_double_click(self, event) -> None:
+        if self._dbl_callback:
+            item_id = self.get_selected_id()
+            if item_id is not None:
+                self._dbl_callback(item_id)
