@@ -55,7 +55,7 @@ class CardWidget(ctk.CTkFrame):
         self._value_lbl = ctk.CTkLabel(
             content,
             text=value,
-            font=ctk.CTkFont(family=FONT_FAMILY, size=26, weight="bold"),
+            font=ctk.CTkFont(family=FONT_FAMILY, size=22, weight="bold"),
             text_color=TEXT_COLOR,
             anchor="w"
         )

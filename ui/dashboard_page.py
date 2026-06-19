@@ -3,6 +3,8 @@ FinGuard UI – Dashboard Page
 Metric cards, top risky customers table, and Matplotlib charts.
 """
 import threading
+import textwrap
+from tkinter import ttk
 from typing import Any, Dict, List
 import customtkinter as ctk
 
@@ -78,6 +80,52 @@ class DashboardPage(ctk.CTkFrame):
         self.load_data()
 
     def _build_layout(self) -> None:
+        # Define specific dark ttk.Style overrides for dashboard tables
+        style = ttk.Style()
+        style.configure("Risky.Treeview",
+            background=CARD_COLOR,
+            fieldbackground=CARD_COLOR,
+            foreground=TEXT_COLOR,
+            rowheight=36,
+            font=(FONT_FAMILY, 11),
+            borderwidth=0,
+            relief="flat",
+        )
+        style.configure("Risky.Treeview.Heading",
+            background="#0F172A",
+            foreground=SUBTEXT_COLOR,
+            font=(FONT_FAMILY, 12),
+            padding=10,
+            borderwidth=0,
+            relief="flat",
+        )
+        style.map("Risky.Treeview",
+            background=[("selected", PRIMARY_COLOR)],
+            foreground=[("selected", TEXT_COLOR)],
+        )
+
+        style.configure("Events.Treeview",
+            background=CARD_COLOR,
+            fieldbackground=CARD_COLOR,
+            foreground=TEXT_COLOR,
+            rowheight=40,
+            font=(FONT_FAMILY, 11),
+            borderwidth=0,
+            relief="flat",
+        )
+        style.configure("Events.Treeview.Heading",
+            background="#0F172A",
+            foreground=SUBTEXT_COLOR,
+            font=(FONT_FAMILY, 12, "bold"),
+            padding=10,
+            borderwidth=0,
+            relief="flat",
+        )
+        style.map("Events.Treeview",
+            background=[("selected", PRIMARY_COLOR)],
+            foreground=[("selected", TEXT_COLOR)],
+        )
+
         # ── Row 1: 5 KPI Cards ─────────────────────────────────────────────
         cards_row = ctk.CTkFrame(self._content, fg_color="transparent")
         cards_row.pack(fill="x", pady=(0, 16))
@@ -98,6 +146,7 @@ class DashboardPage(ctk.CTkFrame):
         split.pack(fill="both", expand=True)
         split.columnconfigure(0, weight=3)
         split.columnconfigure(1, weight=2)
+        split.rowconfigure(0, weight=1)
 
         # Charts panel
         self._charts_frame = ctk.CTkFrame(split, fg_color="transparent")
@@ -120,9 +169,21 @@ class DashboardPage(ctk.CTkFrame):
         self._risky_table = TableWidget(
             risk_panel,
             columns=["customer_id", "name", "risk_score", "tier"],
-            headers=["ID", "Name", "Risk Score", "Tier"]
+            headers=["ID", "Name", "Risk Score", "Tier"],
+            style="Risky.Treeview",
+            column_alignments={"customer_id": "center", "name": "w", "risk_score": "center", "tier": "center"}
         )
         self._risky_table.pack(fill="both", expand=True, padx=8, pady=(8, 12))
+
+        def resize_risky(event):
+            w = event.width
+            usable_w = max(600, w - 25)
+            self._risky_table._tree.column("customer_id", width=int(usable_w * 0.10), minwidth=40, stretch=True)
+            self._risky_table._tree.column("name", width=int(usable_w * 0.40), minwidth=100, stretch=True)
+            self._risky_table._tree.column("risk_score", width=int(usable_w * 0.25), minwidth=60, stretch=True)
+            self._risky_table._tree.column("tier", width=int(usable_w * 0.25), minwidth=60, stretch=True)
+
+        self._risky_table.bind("<Configure>", resize_risky)
 
         # ── Row 3: Recent Events section ───────────────────────────────────
         events_panel = ctk.CTkFrame(self._content, fg_color=CARD_COLOR, corner_radius=12)
@@ -137,9 +198,23 @@ class DashboardPage(ctk.CTkFrame):
         self._events_table = TableWidget(
             events_panel,
             columns=["tx_id", "customer_id", "risk_score", "severity", "status", "time"],
-            headers=["TX ID", "Customer ID", "Risk Score", "Severity", "Status", "Timestamp"]
+            headers=["TX ID", "Customer ID", "Risk Score", "Severity", "Status", "Timestamp"],
+            style="Events.Treeview",
+            column_alignments={"tx_id": "center", "customer_id": "center", "risk_score": "center", "severity": "center", "status": "center", "time": "w"}
         )
         self._events_table.pack(fill="x", padx=8, pady=(0, 12))
+
+        def resize_events(event):
+            w = event.width
+            usable_w = max(700, w - 25)
+            self._events_table._tree.column("tx_id", width=int(usable_w * 0.10), minwidth=50, stretch=True)
+            self._events_table._tree.column("customer_id", width=int(usable_w * 0.15), minwidth=60, stretch=True)
+            self._events_table._tree.column("risk_score", width=int(usable_w * 0.15), minwidth=60, stretch=True)
+            self._events_table._tree.column("severity", width=int(usable_w * 0.15), minwidth=60, stretch=True)
+            self._events_table._tree.column("status", width=int(usable_w * 0.15), minwidth=60, stretch=True)
+            self._events_table._tree.column("time", width=int(usable_w * 0.30), minwidth=100, stretch=True)
+
+        self._events_table.bind("<Configure>", resize_events)
 
     def load_data(self) -> None:
         """Trigger async data reload."""
@@ -217,12 +292,12 @@ class DashboardPage(ctk.CTkFrame):
         ).pack(anchor="w", padx=16, pady=(14, 4))
 
         if HAS_MATPLOTLIB and rules:
-            fig = Figure(figsize=(6, 3.8), facecolor=CARD_COLOR, dpi=96)
+            fig = Figure(figsize=(6, 4.8), facecolor=CARD_COLOR, dpi=96)
             ax  = fig.add_subplot(111)
             ax.set_facecolor("#0F172A")
 
-            names  = [r["rule_name"][:20] + "…" if len(r["rule_name"]) > 20
-                      else r["rule_name"] for r in rules]
+            # Disable ellipsis completely and enable automatic word wrapping
+            names  = [textwrap.fill(r["rule_name"], 20) for r in rules]
             counts = [r["cnt"] for r in rules]
 
             colors = [PRIMARY_COLOR] * len(counts)
@@ -230,7 +305,14 @@ class DashboardPage(ctk.CTkFrame):
                 colors[0] = DANGER_COLOR   # Highlight most triggered
 
             bars = ax.barh(names, counts, color=colors, edgecolor="none", height=0.55)
-            ax.tick_params(colors=TEXT_COLOR, labelsize=8)
+            ax.tick_params(axis="x", colors=TEXT_COLOR, labelsize=9)
+            ax.tick_params(axis="y", colors=TEXT_COLOR, labelsize=11, pad=12)
+            
+            # Explicitly set font properties for Y-axis labels
+            for label in ax.get_yticklabels():
+                label.set_fontname("Segoe UI")
+                label.set_fontweight("normal")
+
             ax.spines["top"].set_visible(False)
             ax.spines["right"].set_visible(False)
             ax.spines["left"].set_color("#334155")
@@ -242,9 +324,9 @@ class DashboardPage(ctk.CTkFrame):
                 if w_val > 0:
                     ax.text(w_val + 0.2, bar.get_y() + bar.get_height() / 2,
                             str(int(w_val)), va="center", ha="left",
-                            color=TEXT_COLOR, fontsize=8)
+                            color=TEXT_COLOR, fontsize=10, fontname="Segoe UI")
 
-            fig.tight_layout(pad=1.5)
+            fig.subplots_adjust(left=0.38, right=0.92, top=0.92, bottom=0.08)
             canvas = FigureCanvasTkAgg(fig, master=panel)
             canvas.draw()
             canvas.get_tk_widget().configure(bg=CARD_COLOR)

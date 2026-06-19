@@ -137,6 +137,32 @@ def apply_treeview_style() -> ttk.Style:
         ("Dark.Treeview.treearea", {"sticky": "nswe"})
     ])
 
+    # Custom Dashboard Treeview Styling (Reduced fonts and slightly increased rowheight)
+    style.configure("Dashboard.Treeview",
+        background=CARD_COLOR,
+        fieldbackground=CARD_COLOR,
+        foreground=TEXT_COLOR,
+        rowheight=40,
+        font=(FONT_FAMILY, 11),
+        borderwidth=0,
+        relief="flat",
+    )
+    style.configure("Dashboard.Treeview.Heading",
+        background="#0F172A",
+        foreground=SUBTEXT_COLOR,
+        font=(FONT_FAMILY, 12, "bold"),
+        padding=10,
+        borderwidth=0,
+        relief="flat",
+    )
+    style.map("Dashboard.Treeview",
+        background=[("selected", PRIMARY_COLOR)],
+        foreground=[("selected", TEXT_COLOR)],
+    )
+    style.layout("Dashboard.Treeview", [
+        ("Dashboard.Treeview.treearea", {"sticky": "nswe"})
+    ])
+
     # Also style scrollbar
     style.configure("Dark.Vertical.TScrollbar",
         background=CARD_COLOR,

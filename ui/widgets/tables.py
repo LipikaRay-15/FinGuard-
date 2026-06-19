@@ -16,7 +16,9 @@ class TableWidget(ctk.CTkFrame):
     """
 
     def __init__(self, parent, columns: List[str], headers: List[str],
-                 row_height: int = 36, **kwargs):
+                 row_height: int = 36, style: str = "Dark.Treeview",
+                 column_widths: Optional[dict] = None,
+                 column_alignments: Optional[dict] = None, **kwargs):
         super().__init__(parent, fg_color="transparent", corner_radius=10, **kwargs)
 
         self._select_callback: Optional[Callable] = None
@@ -38,7 +40,7 @@ class TableWidget(ctk.CTkFrame):
             tree_frame,
             columns=columns,
             show="headings",
-            style="Dark.Treeview",
+            style=style,
             selectmode="browse"
         )
 
@@ -64,10 +66,21 @@ class TableWidget(ctk.CTkFrame):
         # Configure columns and headers using native Treeview mechanism
         for i, col in enumerate(columns):
             heading_text = headers[i] if i < len(headers) else col
-            self._tree.heading(col, text=heading_text, anchor="w")
             
-            col_width = width_map.get(col.lower(), 120)
-            self._tree.column(col, anchor="w", width=col_width, minwidth=70, stretch=True)
+            # Use custom alignments if provided, otherwise default to "w" (left-aligned)
+            align = "w"
+            if column_alignments and col in column_alignments:
+                align = column_alignments[col]
+            
+            self._tree.heading(col, text=heading_text, anchor=align)
+            
+            # Use custom widths if provided, otherwise fallback to default maps
+            if column_widths and col in column_widths:
+                col_width = column_widths[col]
+            else:
+                col_width = width_map.get(col.lower(), 120)
+                
+            self._tree.column(col, anchor=align, width=col_width, minwidth=70, stretch=True)
 
         # Scrollbars configured via Grid to prevent overlaps and alignment issues
         yscroll = ttk.Scrollbar(tree_frame, orient="vertical",
