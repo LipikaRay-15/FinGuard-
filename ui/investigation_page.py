@@ -1,17 +1,18 @@
 """
 FinGuard UI – Investigation Page
 Full customer dossier: KYC profile, devices, metrics cards, behavior summary, timeline.
+Refactored to match Dashboard typography, compact vertical timeline, and unified vertical scrolling.
 """
 import threading
+import textwrap
 from typing import Any, Dict, List, Optional
 import customtkinter as ctk
-from tkinter import messagebox
+from tkinter import messagebox, ttk
 
-from ui.widgets.cards        import CardWidget
-from ui.widgets.tables       import TableWidget
-from ui.widgets.timeline     import TimelineWidget
+from ui.widgets.cards import CardWidget
+from ui.widgets.tables import TableWidget
 from ui.widgets.status_badges import StatusBadge
-from ui.widgets.dialogs      import InputDialog
+from ui.widgets.dialogs import InputDialog
 from ui.widgets.theme import (
     BG_COLOR, CARD_COLOR, TEXT_COLOR, SUBTEXT_COLOR,
     PRIMARY_COLOR, SUCCESS_COLOR, WARNING_COLOR, DANGER_COLOR,
@@ -21,16 +22,75 @@ from services import InvestigationService, BlacklistService, WhitelistService
 from database import DatabaseConnection
 
 
+class CompactTimeline(ctk.CTkFrame):
+    """
+    Renders a vertical compact event timeline with centered dot-node markers,
+    down arrows, and exact event text. No internal scrollbar.
+    """
+    def __init__(self, parent, **kwargs):
+        super().__init__(parent, fg_color="transparent", **kwargs)
+
+    def set_events(self, events: List[Dict[str, Any]]) -> None:
+        # Clear old widgets
+        for w in self.winfo_children():
+            w.destroy()
+
+        if not events:
+            ctk.CTkLabel(
+                self, text="No timeline events recorded.",
+                text_color=SUBTEXT_COLOR,
+                font=ctk.CTkFont(family="Segoe UI", size=11)
+            ).pack(pady=20)
+            return
+
+        # Main vertical flow container
+        container = ctk.CTkFrame(self, fg_color="transparent")
+        container.pack(expand=True, fill="both")
+
+        for idx, event in enumerate(events):
+            time_str = event.get("time", "")
+            title_str = event.get("title", "")
+
+            # Event node frame
+            node_frame = ctk.CTkFrame(container, fg_color="transparent")
+            node_frame.pack(fill="x", pady=1)
+
+            # Circle marker + timestamp
+            lbl_time = ctk.CTkLabel(
+                node_frame, text=f"●  {time_str}" if time_str else "●",
+                font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
+                text_color=PRIMARY_COLOR
+            )
+            lbl_time.pack(anchor="center")
+
+            # Title / description
+            lbl_title = ctk.CTkLabel(
+                node_frame, text=title_str,
+                font=ctk.CTkFont(family="Segoe UI", size=11),
+                text_color=TEXT_COLOR, justify="center"
+            )
+            lbl_title.pack(anchor="center", pady=(1, 2))
+
+            # Vertical arrow connector
+            if idx < len(events) - 1:
+                lbl_arrow = ctk.CTkLabel(
+                    container, text="↓",
+                    font=ctk.CTkFont(family="Segoe UI", size=12, weight="bold"),
+                    text_color=SUBTEXT_COLOR
+                )
+                lbl_arrow.pack(anchor="center", pady=2)
+
+
 class InvestigationPage(ctk.CTkFrame):
-    """Customer Security Dossier & Investigation page."""
+    """Customer Security Dossier & Investigation page subclass."""
 
     def __init__(self, parent) -> None:
         super().__init__(parent, fg_color=BG_COLOR, corner_radius=0)
         self.investigation_service = InvestigationService()
-        self.blacklist_service     = BlacklistService()
-        self.whitelist_service     = WhitelistService()
-        self.db                    = DatabaseConnection()
-        self.current_customer_id   = None
+        self.blacklist_service = BlacklistService()
+        self.whitelist_service = WhitelistService()
+        self.db = DatabaseConnection()
+        self.current_customer_id = None
         self.current_customer_data = None
 
         # ── Header with search ────────────────────────────────────────────
@@ -39,7 +99,7 @@ class InvestigationPage(ctk.CTkFrame):
         hdr.pack_propagate(False)
 
         ctk.CTkLabel(hdr, text="Customer Security Dossier",
-                     font=ctk.CTkFont(family=FONT_FAMILY, size=20, weight="bold"),
+                     font=ctk.CTkFont(family="Segoe UI", size=20, weight="bold"),
                      text_color=TEXT_COLOR).pack(side="left")
 
         # Search cluster
@@ -66,7 +126,7 @@ class InvestigationPage(ctk.CTkFrame):
         )
         self._search_btn.pack(side="left")
 
-        # ── Scroll body ───────────────────────────────────────────────────
+        # ── Single Scroll Body (Preventing nested scrollbars) ─────────────
         self._scroll = ctk.CTkScrollableFrame(
             self, fg_color="transparent",
             scrollbar_fg_color=BG_COLOR, scrollbar_button_color="#334155"
@@ -105,10 +165,8 @@ class InvestigationPage(ctk.CTkFrame):
 
         self._dossier = ctk.CTkFrame(self._scroll, fg_color="transparent")
 
-    # ── Public entry point ────────────────────────────────────────────────
-
+    # ── Public Entry Point ────────────────────────────────────────────────
     def load_customer(self, customer_id: int) -> None:
-        """Called externally to load a specific customer."""
         self._id_entry.delete(0, "end")
         self._id_entry.insert(0, str(customer_id))
         self.load_customer_investigation()
@@ -158,7 +216,7 @@ class InvestigationPage(ctk.CTkFrame):
             w.destroy()
         self._dossier.pack(fill="both", expand=True)
 
-        # 2-column split
+        # Split Layout
         split = ctk.CTkFrame(self._dossier, fg_color="transparent")
         split.pack(fill="both", expand=True)
         split.columnconfigure(0, weight=3)
@@ -178,12 +236,11 @@ class InvestigationPage(ctk.CTkFrame):
 
     def _build_profile_card(self, parent, dossier: Dict) -> None:
         profile = dossier["customer_profile"]
-        rp      = dossier.get("risk_profile") or {}
+        rp = dossier.get("risk_profile") or {}
 
         card = ctk.CTkFrame(parent, fg_color=CARD_COLOR, corner_radius=12)
         card.pack(fill="x", pady=(0, 12))
 
-        # Avatar
         av_row = ctk.CTkFrame(card, fg_color="transparent")
         av_row.pack(fill="x", padx=16, pady=(14, 0))
 
@@ -192,7 +249,7 @@ class InvestigationPage(ctk.CTkFrame):
             text=f"{profile['first_name'][0]}{profile['last_name'][0]}".upper(),
             width=52, height=52, corner_radius=26,
             fg_color=PRIMARY_COLOR, text_color=TEXT_COLOR,
-            font=ctk.CTkFont(family=FONT_FAMILY, size=18, weight="bold")
+            font=ctk.CTkFont(family="Segoe UI", size=18, weight="bold")
         )
         av.pack(side="left", padx=(0, 14))
 
@@ -201,7 +258,7 @@ class InvestigationPage(ctk.CTkFrame):
 
         ctk.CTkLabel(name_col,
                      text=f"{profile['first_name']} {profile['last_name']}",
-                     font=ctk.CTkFont(family=FONT_FAMILY, size=15, weight="bold"),
+                     font=ctk.CTkFont(family="Segoe UI", size=15, weight="bold"),
                      text_color=TEXT_COLOR).pack(anchor="w")
 
         badge_row = ctk.CTkFrame(name_col, fg_color="transparent")
@@ -211,12 +268,12 @@ class InvestigationPage(ctk.CTkFrame):
         if dossier["blacklist_status"]["blacklisted"]:
             ctk.CTkLabel(badge_row, text="  BLACKLISTED  ",
                          fg_color=DANGER_COLOR, text_color=TEXT_COLOR,
-                         font=ctk.CTkFont(family=FONT_FAMILY, size=9, weight="bold"),
+                         font=ctk.CTkFont(family="Segoe UI", size=9, weight="bold"),
                          corner_radius=4).pack(side="left")
         elif dossier["whitelist_status"]["whitelisted"]:
             ctk.CTkLabel(badge_row, text="  WHITELISTED  ",
                          fg_color=SUCCESS_COLOR, text_color=TEXT_COLOR,
-                         font=ctk.CTkFont(family=FONT_FAMILY, size=9, weight="bold"),
+                         font=ctk.CTkFont(family="Segoe UI", size=9, weight="bold"),
                          corner_radius=4).pack(side="left")
 
         ctk.CTkFrame(card, fg_color="#2D3748", height=1).pack(fill="x", padx=16, pady=12)
@@ -235,13 +292,12 @@ class InvestigationPage(ctk.CTkFrame):
             row = ctk.CTkFrame(card, fg_color="transparent", height=26)
             row.pack(fill="x", padx=16, pady=1)
             ctk.CTkLabel(row, text=f"{label}:", text_color=SUBTEXT_COLOR,
-                         font=ctk.CTkFont(family=FONT_FAMILY, size=10),
-                         width=100, anchor="w").pack(side="left")
+                         font=ctk.CTkFont(family="Segoe UI", size=10),
+                         width=110, anchor="w").pack(side="left")
             ctk.CTkLabel(row, text=str(val), text_color=TEXT_COLOR,
-                         font=ctk.CTkFont(family=FONT_FAMILY, size=10),
+                         font=ctk.CTkFont(family="Segoe UI", size=10),
                          anchor="w").pack(side="left", fill="x", expand=True)
 
-        # Action buttons
         act = ctk.CTkFrame(card, fg_color="transparent")
         act.pack(fill="x", padx=16, pady=(10, 14))
 
@@ -249,7 +305,7 @@ class InvestigationPage(ctk.CTkFrame):
             ctk.CTkButton(act, text="🚫  Blacklist", width=100, height=30,
                           corner_radius=8, fg_color=DANGER_COLOR, hover_color="#DC2626",
                           text_color=TEXT_COLOR,
-                          font=ctk.CTkFont(family=FONT_FAMILY, size=11),
+                          font=ctk.CTkFont(family="Segoe UI", size=11),
                           command=self._blacklist_customer).pack(side="left", padx=(0, 8))
 
         if (not dossier["whitelist_status"]["whitelisted"] and
@@ -257,7 +313,7 @@ class InvestigationPage(ctk.CTkFrame):
             ctk.CTkButton(act, text="⭐  Whitelist", width=100, height=30,
                           corner_radius=8, fg_color=SUCCESS_COLOR, hover_color="#059669",
                           text_color=TEXT_COLOR,
-                          font=ctk.CTkFont(family=FONT_FAMILY, size=11),
+                          font=ctk.CTkFont(family="Segoe UI", size=11),
                           command=self._whitelist_customer).pack(side="left")
 
     def _build_devices_card(self, parent, dossier: Dict) -> None:
@@ -265,21 +321,59 @@ class InvestigationPage(ctk.CTkFrame):
         card.pack(fill="both", expand=True, pady=(0, 0))
 
         ctk.CTkLabel(card, text="🖥  Associated Device Fingerprints",
-                     font=ctk.CTkFont(family=FONT_FAMILY, size=13, weight="bold"),
+                     font=ctk.CTkFont(family="Segoe UI", size=13, weight="bold"),
                      text_color=TEXT_COLOR).pack(anchor="w", padx=16, pady=(14, 4))
 
-        tbl = TableWidget(card,
-                          columns=["fingerprint","ip_address","operating_system","last_seen"],
-                          headers=["Fingerprint","IP Address","OS","Last Seen"])
+        # Device Table Styling
+        style = ttk.Style()
+        style.configure("Devices.Treeview",
+            background=CARD_COLOR,
+            fieldbackground=CARD_COLOR,
+            foreground=TEXT_COLOR,
+            rowheight=28,
+            font=("Segoe UI", 11),
+            borderwidth=0,
+            relief="flat",
+        )
+        style.configure("Devices.Treeview.Heading",
+            background="#0F172A",
+            foreground=SUBTEXT_COLOR,
+            font=("Segoe UI", 12, "bold"),
+            padding=6,
+            borderwidth=0,
+            relief="flat",
+        )
+        style.map("Devices.Treeview",
+            background=[("selected", PRIMARY_COLOR), ("active", "#1E3A5F")],
+            foreground=[("selected", TEXT_COLOR)],
+        )
+
+        tbl = TableWidget(
+            card,
+            columns=["fingerprint", "ip_address", "operating_system", "last_seen"],
+            headers=["Fingerprint", "IP Address", "OS", "Last Seen"],
+            style="Devices.Treeview"
+        )
         tbl.pack(fill="both", expand=True, padx=8, pady=(0, 12))
 
+        # Proportionally Resize Columns dynamically on window size adjustments
+        def _resize_cols(event) -> None:
+            w = event.width - 20
+            if w > 100:
+                tbl._tree.column("fingerprint", width=int(w * 0.35))
+                tbl._tree.column("ip_address", width=int(w * 0.20))
+                tbl._tree.column("operating_system", width=int(w * 0.20))
+                tbl._tree.column("last_seen", width=int(w * 0.25))
+
+        tbl.bind("<Configure>", _resize_cols)
+
+        # Do not truncate the fingerprint hash
         for dev in dossier.get("devices_used", []):
-            fp = dev.get("device_fingerprint","")
             tbl.insert_row([
-                fp[:14] + "…" if len(fp) > 14 else fp,
-                dev.get("ip_address","—"),
+                dev.get("device_fingerprint", ""),
+                dev.get("ip_address", "—"),
                 dev.get("operating_system") or "Unknown",
-                str(dev.get("last_seen",""))[:16]
+                str(dev.get("last_seen", ""))[:16]
             ])
 
     def _build_metrics_row(self, parent, dossier: Dict) -> None:
@@ -287,13 +381,13 @@ class InvestigationPage(ctk.CTkFrame):
         grid.pack(fill="x", pady=(0, 12))
         grid.columnconfigure((0, 1), weight=1)
 
-        trust   = dossier.get("trust_score", 0)
-        frauds  = dossier.get("fraud_attempts", 0)
+        trust = dossier.get("trust_score", 0)
+        frauds = dossier.get("fraud_attempts", 0)
         avg_amt = dossier.get("average_amount", 0) or 0
-        city    = dossier.get("most_frequent_city") or "—"
+        city = dossier.get("most_frequent_city") or "—"
 
-        trust_c   = SUCCESS_COLOR if trust >= 70 else WARNING_COLOR
-        fraud_c   = DANGER_COLOR  if frauds > 0 else SUCCESS_COLOR
+        trust_c = SUCCESS_COLOR if trust >= 70 else WARNING_COLOR
+        fraud_c = DANGER_COLOR if frauds > 0 else SUCCESS_COLOR
 
         CardWidget(grid, "Trust Score",     f"{trust}/100",   "Overall reliability", trust_c
                    ).grid(row=0, column=0, sticky="nsew", padx=(0, 4), pady=4)
@@ -309,37 +403,56 @@ class InvestigationPage(ctk.CTkFrame):
         card.pack(fill="x", pady=(0, 12))
 
         ctk.CTkLabel(card, text="🧠  Behavior Summary",
-                     font=ctk.CTkFont(family=FONT_FAMILY, size=13, weight="bold"),
+                     font=ctk.CTkFont(family="Segoe UI", size=13, weight="bold"),
                      text_color=TEXT_COLOR).pack(anchor="w", padx=16, pady=(14, 4))
 
-        ctk.CTkLabel(card,
-                     text=dossier.get("behaviour_summary") or "No behavioral data available.",
-                     font=ctk.CTkFont(family=FONT_FAMILY, size=11),
-                     text_color=TEXT_COLOR, justify="left",
-                     wraplength=320).pack(anchor="w", padx=16, pady=(0, 14))
+        # Format Behavior text with maximum width of 70 characters and paragraph line spacing
+        raw_text = dossier.get("behaviour_summary") or "No behavioral data available."
+        formatted_paragraphs = []
+        for p in raw_text.split("\n"):
+            if p.strip():
+                formatted_paragraphs.append(textwrap.fill(p, width=70))
+        formatted_text = "\n\n".join(formatted_paragraphs)
+
+        txt = ctk.CTkTextbox(
+            card, fg_color="transparent", text_color=TEXT_COLOR,
+            font=ctk.CTkFont(family="Segoe UI", size=11), wrap="word"
+        )
+        txt.pack(fill="x", padx=16, pady=(0, 14))
+        txt.insert("1.0", formatted_text)
+        
+        # Calculate dynamic size to prevent any scrollbars
+        lines = formatted_text.count("\n") + 1
+        txt_height = max(60, lines * 18 + 10)
+        txt.configure(height=txt_height, state="disabled")
 
     def _build_timeline_card(self, parent, dossier: Dict) -> None:
         card = ctk.CTkFrame(parent, fg_color=CARD_COLOR, corner_radius=12)
-        card.pack(fill="both", expand=True)
+        card.pack(fill="x", pady=(0, 0))
 
         ctk.CTkLabel(card, text="⏱  Security Audit Timeline",
-                     font=ctk.CTkFont(family=FONT_FAMILY, size=13, weight="bold"),
+                     font=ctk.CTkFont(family="Segoe UI", size=13, weight="bold"),
                      text_color=TEXT_COLOR).pack(anchor="w", padx=16, pady=(14, 4))
-
-        timeline = TimelineWidget(card)
-        timeline.pack(fill="both", expand=True, padx=8, pady=(0, 12))
 
         events = []
         for item in dossier.get("timeline", []):
             parts = str(item).split(" ", 2)
             if len(parts) >= 3:
-                events.append({"time": f"{parts[0]} {parts[1]}", "title": parts[2], "details": ""})
+                events.append({"time": f"{parts[0]} {parts[1]}", "title": parts[2]})
             else:
-                events.append({"time": "", "title": str(item), "details": ""})
+                events.append({"time": "", "title": str(item)})
+
+        # Compact timeline centered vertically without internal scrollbars
+        timeline = CompactTimeline(card)
+        timeline.pack(expand=True, fill="both", padx=16, pady=(0, 16))
         timeline.set_events(events)
 
-    # ── Actions ───────────────────────────────────────────────────────────
+        # Enforce dynamic heights: minimum 250px, maximum 500px
+        card_height = max(250, min(500, len(events) * 65 + 40))
+        card.configure(height=card_height)
+        card.pack_propagate(False)
 
+    # ── Actions ───────────────────────────────────────────────────────────
     def _blacklist_customer(self) -> None:
         InputDialog(self, "Blacklist Customer",
                     f"Reason for blacklisting Customer #{self.current_customer_id}:",

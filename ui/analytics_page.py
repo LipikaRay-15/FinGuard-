@@ -1,14 +1,14 @@
 """
 FinGuard UI – Analytics Page
-Threat intelligence: KPI cards, rules/cities tables, Matplotlib charts.
+Threat intelligence: KPI cards, top-5 rules/locations card-based lists, Matplotlib charts.
+Refactored to replace tables with Stripe/Datadog-style card-based lists and responsive stacking.
 """
 import threading
 from typing import Any, Dict, List
 import customtkinter as ctk
 from tkinter import messagebox
 
-from ui.widgets.cards  import CardWidget
-from ui.widgets.tables import TableWidget
+from ui.widgets.cards import CardWidget
 from ui.widgets.theme import (
     BG_COLOR, CARD_COLOR, TEXT_COLOR, SUBTEXT_COLOR,
     PRIMARY_COLOR, SUCCESS_COLOR, WARNING_COLOR, DANGER_COLOR,
@@ -26,8 +26,99 @@ except ImportError:
     HAS_MATPLOTLIB = False
 
 
+class RulesList(ctk.CTkFrame):
+    """
+    Card-based list showing most triggered rules.
+    Vertically stacked with subtle separators, no scrollbars, no table.
+    """
+    def __init__(self, parent, **kwargs):
+        super().__init__(parent, fg_color="transparent", **kwargs)
+
+    def set_data(self, data_list: List[Dict]) -> None:
+        for w in self.winfo_children():
+            w.destroy()
+
+        if not data_list:
+            ctk.CTkLabel(
+                self, text="No rules triggered.",
+                font=ctk.CTkFont(family="Segoe UI", size=11),
+                text_color=SUBTEXT_COLOR
+            ).pack(pady=20)
+            return
+
+        top_items = data_list[:5]
+        for idx, item in enumerate(top_items):
+            row_card = ctk.CTkFrame(self, fg_color="transparent")
+            row_card.pack(fill="x", pady=6)
+
+            # Rule Name (Segoe UI 12 Bold)
+            lbl_rule = ctk.CTkLabel(
+                row_card, text=item["rule_name"],
+                font=ctk.CTkFont(family="Segoe UI", size=12, weight="bold"),
+                text_color=TEXT_COLOR, anchor="w", justify="left"
+            )
+            lbl_rule.pack(anchor="w")
+
+            # Triggers (Segoe UI 10)
+            lbl_triggers = ctk.CTkLabel(
+                row_card, text=f"{item['trigger_count']} triggers",
+                font=ctk.CTkFont(family="Segoe UI", size=10),
+                text_color=SUBTEXT_COLOR, anchor="w"
+            )
+            lbl_triggers.pack(anchor="w", pady=(1, 0))
+
+            # Subtle separator
+            if idx < len(top_items) - 1:
+                ctk.CTkFrame(self, fg_color="#2D3748", height=1).pack(fill="x", pady=(6, 2))
+
+
+class LocationsList(ctk.CTkFrame):
+    """
+    Card-based row cards showing risky geographic locations.
+    No grid, no headers, no horizontal scroll, distinct spacing between rows.
+    """
+    def __init__(self, parent, **kwargs):
+        super().__init__(parent, fg_color="transparent", **kwargs)
+
+    def set_data(self, data_list: List[Dict]) -> None:
+        for w in self.winfo_children():
+            w.destroy()
+
+        if not data_list:
+            ctk.CTkLabel(
+                self, text="No location data available.",
+                font=ctk.CTkFont(family="Segoe UI", size=11),
+                text_color=SUBTEXT_COLOR
+            ).pack(pady=20)
+            return
+
+        for item in data_list[:5]:
+            row_card = ctk.CTkFrame(self, fg_color="#1E293B", corner_radius=8, border_width=1, border_color="#2D3748")
+            row_card.pack(fill="x", pady=6)
+
+            # Spacing inside row card
+            inner = ctk.CTkFrame(row_card, fg_color="transparent")
+            inner.pack(padx=16, pady=10, fill="x")
+
+            # Location Name (Segoe UI 12 Bold)
+            lbl_loc = ctk.CTkLabel(
+                inner, text=item["city"].upper(),
+                font=ctk.CTkFont(family="Segoe UI", size=12, weight="bold"),
+                text_color=TEXT_COLOR, anchor="w"
+            )
+            lbl_loc.pack(anchor="w")
+
+            # Statistics (Segoe UI 10)
+            lbl_stats = ctk.CTkLabel(
+                inner, text=f"{item['total_count']} transactions • {item['fraud_count']} declined",
+                font=ctk.CTkFont(family="Segoe UI", size=10),
+                text_color=SUBTEXT_COLOR, anchor="w"
+            )
+            lbl_stats.pack(anchor="w", pady=(2, 0))
+
+
 class AnalyticsPage(ctk.CTkFrame):
-    """System Analytics & Threat Intelligence page."""
+    """System Analytics & Threat Intelligence page subclass."""
 
     def __init__(self, parent) -> None:
         super().__init__(parent, fg_color=BG_COLOR, corner_radius=0)
@@ -38,11 +129,11 @@ class AnalyticsPage(ctk.CTkFrame):
         hdr.pack(fill="x", padx=24, pady=(20, 0))
         hdr.pack_propagate(False)
         ctk.CTkLabel(hdr, text="Threat Intelligence Analytics",
-                     font=ctk.CTkFont(family=FONT_FAMILY, size=20, weight="bold"),
+                     font=ctk.CTkFont(family="Segoe UI", size=24, weight="bold"),
                      text_color=TEXT_COLOR).pack(side="left")
         ctk.CTkButton(hdr, text="⟳  Refresh", width=100, height=32,
                       corner_radius=8, fg_color="#1E293B", hover_color="#334155",
-                      text_color=TEXT_COLOR, font=ctk.CTkFont(family=FONT_FAMILY, size=11),
+                      text_color=TEXT_COLOR, font=ctk.CTkFont(family="Segoe UI", size=11),
                       command=self.load_analytics).pack(side="right")
 
         # ── Scrollable body ────────────────────────────────────────────────
@@ -54,7 +145,7 @@ class AnalyticsPage(ctk.CTkFrame):
 
         self._loading = ctk.CTkLabel(
             self._scroll, text="⏳  Aggregating threat metrics…",
-            font=ctk.CTkFont(family=FONT_FAMILY, size=13), text_color=SUBTEXT_COLOR)
+            font=ctk.CTkFont(family="Segoe UI", size=13), text_color=SUBTEXT_COLOR)
         self._loading.pack(pady=60)
 
         self._content = ctk.CTkFrame(self._scroll, fg_color="transparent")
@@ -75,44 +166,63 @@ class AnalyticsPage(ctk.CTkFrame):
         for i, c in enumerate([self._c_fraud_rate, self._c_fp_ratio, self._c_avg_tx, self._c_res_time]):
             c.grid(row=0, column=i, sticky="nsew", padx=6)
 
-        # ── Row 2: Tables left, Charts right ─────────────────────────────
-        split = ctk.CTkFrame(self._content, fg_color="transparent")
-        split.pack(fill="both", expand=True)
-        split.columnconfigure(0, weight=2)
-        split.columnconfigure(1, weight=3)
+        # ── Row 2: Responsive Columns/Split Layout ───────────────────────
+        self.split = ctk.CTkFrame(self._content, fg_color="transparent")
+        self.split.pack(fill="both", expand=True)
+        self.split.columnconfigure(0, weight=1, minsize=450)  # Min width: 450 px
+        self.split.columnconfigure(1, weight=1)
 
-        # Left: tables
-        left = ctk.CTkFrame(split, fg_color="transparent")
-        left.grid(row=0, column=0, sticky="nsew", padx=(0, 8))
+        # Left Column (Top-5 lists)
+        self.left_panel = ctk.CTkFrame(self.split, fg_color="transparent")
+        self.left_panel.grid(row=0, column=0, sticky="nsew", padx=(0, 8))
 
-        # Rules table
-        rules_panel = ctk.CTkFrame(left, fg_color=CARD_COLOR, corner_radius=12)
+        # Rules panel card
+        rules_panel = ctk.CTkFrame(self.left_panel, fg_color=CARD_COLOR, corner_radius=12)
         rules_panel.pack(fill="both", expand=True, pady=(0, 12))
-        ctk.CTkLabel(rules_panel, text="🔴  Most Triggered Rules",
-                     font=ctk.CTkFont(family=FONT_FAMILY, size=13, weight="bold"),
-                     text_color=TEXT_COLOR).pack(anchor="w", padx=16, pady=(14, 4))
-        self._rules_table = TableWidget(rules_panel,
-                                         columns=["rule","count"],
-                                         headers=["Rule Name","Trigger Count"])
-        self._rules_table.pack(fill="both", expand=True, padx=8, pady=(0, 12))
+        
+        ctk.CTkLabel(rules_panel, text="⚠  Most Triggered Rules",
+                     font=ctk.CTkFont(family="Segoe UI", size=15, weight="bold"),
+                     text_color=TEXT_COLOR).pack(anchor="w", padx=20, pady=(20, 4))
 
-        # Cities table
-        cities_panel = ctk.CTkFrame(left, fg_color=CARD_COLOR, corner_radius=12)
+        self._rules_list = RulesList(rules_panel)
+        self._rules_list.pack(fill="both", expand=True, padx=20, pady=(0, 20))
+
+        # Cities panel card
+        cities_panel = ctk.CTkFrame(self.left_panel, fg_color=CARD_COLOR, corner_radius=12)
         cities_panel.pack(fill="both", expand=True)
-        ctk.CTkLabel(cities_panel, text="🌍  Risky Geographic Locations",
-                     font=ctk.CTkFont(family=FONT_FAMILY, size=13, weight="bold"),
-                     text_color=TEXT_COLOR).pack(anchor="w", padx=16, pady=(14, 4))
-        self._cities_table = TableWidget(cities_panel,
-                                          columns=["city","total","fraud"],
-                                          headers=["City","Total Transactions","Decline Volume"])
-        self._cities_table.pack(fill="both", expand=True, padx=8, pady=(0, 12))
+        
+        ctk.CTkLabel(cities_panel, text="📍  Risky Geographic Locations",
+                     font=ctk.CTkFont(family="Segoe UI", size=15, weight="bold"),
+                     text_color=TEXT_COLOR).pack(anchor="w", padx=20, pady=(20, 4))
 
-        # Right: charts
-        self._charts_frame = ctk.CTkFrame(split, fg_color="transparent")
+        self._cities_list = LocationsList(cities_panel)
+        self._cities_list.pack(fill="both", expand=True, padx=20, pady=(0, 20))
+
+        # Right Column (Matplotlib Charts)
+        self._charts_frame = ctk.CTkFrame(self.split, fg_color="transparent")
         self._charts_frame.grid(row=0, column=1, sticky="nsew", padx=(8, 0))
 
-    # ── Data ──────────────────────────────────────────────────────────────
+        # Handle responsive window layout changes
+        self.split.bind("<Configure>", self._on_responsive_configure)
 
+    def _on_responsive_configure(self, event) -> None:
+        width = event.width
+        if width < 920:
+            # Shift side-by-side grid panels to stacked layout
+            self.left_panel.grid_forget()
+            self._charts_frame.grid_forget()
+
+            self.left_panel.pack(side="top", fill="x", pady=(0, 16))
+            self._charts_frame.pack(side="top", fill="x")
+        else:
+            # Revert to side-by-side grid panels
+            self.left_panel.pack_forget()
+            self._charts_frame.pack_forget()
+
+            self.left_panel.grid(row=0, column=0, sticky="nsew", padx=(0, 8))
+            self._charts_frame.grid(row=0, column=1, sticky="nsew", padx=(8, 0))
+
+    # ── Data ──────────────────────────────────────────────────────────────
     def load_analytics(self) -> None:
         self._loading.pack(pady=60)
         self._content.pack_forget()
@@ -139,13 +249,9 @@ class AnalyticsPage(ctk.CTkFrame):
                    f"{rt:.1f} secs")
         self._c_res_time.update_value(res_str)
 
-        self._rules_table.clear()
-        for r in data["most_triggered_rules"]:
-            self._rules_table.insert_row([r["rule_name"], r["trigger_count"]])
-
-        self._cities_table.clear()
-        for c in data["top_risky_cities"]:
-            self._cities_table.insert_row([c["city"], c["total_count"], c["fraud_count"]])
+        # Update Top-5 card-based lists
+        self._rules_list.set_data(data["most_triggered_rules"])
+        self._cities_list.set_data(data["top_risky_cities"])
 
         self._render_charts(data)
 
@@ -156,7 +262,7 @@ class AnalyticsPage(ctk.CTkFrame):
         if HAS_MATPLOTLIB:
             fig = Figure(figsize=(6, 6), facecolor=BG_COLOR, dpi=92)
 
-            # ── Subplot 1: Hourly line chart ─────────────────────────────
+            # Subplot 1: Hourly line chart
             ax1 = fig.add_subplot(211)
             ax1.set_facecolor(CARD_COLOR)
             hours  = [h["hour"] for h in data["hourly_trends"]]
@@ -170,11 +276,11 @@ class AnalyticsPage(ctk.CTkFrame):
             ax1.spines["left"].set_color("#334155")
             ax1.spines["bottom"].set_color("#334155")
             ax1.set_title("Hourly Scan Volume (24h)", color=TEXT_COLOR,
-                          fontsize=10, weight="bold")
+                           fontsize=10, weight="bold")
             ax1.set_xlabel("Hour of Day", color=SUBTEXT_COLOR, fontsize=8)
             ax1.set_ylabel("TX Count", color=SUBTEXT_COLOR, fontsize=8)
 
-            # ── Subplot 2: Alert severity donut ──────────────────────────
+            # Subplot 2: Alert severity donut
             ax2 = fig.add_subplot(212)
             ax2.set_facecolor(CARD_COLOR)
             sev_dist = data["alert_distribution"].get("severity_distribution", {})
