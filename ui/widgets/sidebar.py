@@ -59,7 +59,7 @@ class SidebarMenu(ctk.CTkFrame):
             ("dashboard", "🏠", "Dashboard"),
             ("customers", "👤", "Customers"),
             ("transactions", "💳", "Transactions"),
-            ("fraud", "🛡️", "Fraud Detection"),
+            ("fraud", "🛡", "Fraud Detection"),
             ("alerts", "🚨", "Alerts"),
             ("cases", "📁", "Cases"),
             ("investigation", "🔍", "Investigation"),
@@ -79,9 +79,10 @@ class SidebarMenu(ctk.CTkFrame):
             btn_frame = ctk.CTkFrame(self.btn_container, fg_color="transparent")
             btn_frame.pack(fill="x", pady=2, padx=12)
             
+            spaces = "  " if page_id == "fraud" else "   "
             btn = ctk.CTkButton(
                 btn_frame,
-                text=f"  {icon}   {label}",
+                text=f"  {icon}{spaces}{label}",
                 anchor="w",
                 fg_color="transparent",
                 hover_color="#1F2937",
@@ -128,7 +129,8 @@ class SidebarMenu(ctk.CTkFrame):
         if self.expanded:
             self.logo_lbl.pack(side="left", padx=16)
             for page_id, info in self.buttons.items():
-                info["btn"].configure(text=f"  {info['icon']}   {info['label']}", anchor="w")
+                spaces = "  " if page_id == "fraud" else "   "
+                info["btn"].configure(text=f"  {info['icon']}{spaces}{info['label']}", anchor="w")
             self.btn_help.configure(text="  ❓   Help", anchor="w")
             self.configure(width=240)
             if hasattr(self.master, "columnconfigure"):
